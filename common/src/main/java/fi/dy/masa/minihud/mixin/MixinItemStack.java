@@ -7,7 +7,6 @@ import org.spongepowered.asm.mixin.Shadow;
 import org.spongepowered.asm.mixin.injection.At;
 import org.spongepowered.asm.mixin.injection.Inject;
 import org.spongepowered.asm.mixin.injection.callback.CallbackInfoReturnable;
-import org.spongepowered.asm.mixin.injection.callback.LocalCapture;
 import net.minecraft.block.BeehiveBlock;
 import net.minecraft.client.item.TooltipContext;
 import net.minecraft.entity.player.PlayerEntity;
@@ -25,9 +24,11 @@ public abstract class MixinItemStack
     @Shadow
     public abstract Item getItem();
 
-    @Inject(method = "getTooltip", at = @At("RETURN"), locals = LocalCapture.CAPTURE_FAILSOFT)
-    private void onGetTooltip(@Nullable PlayerEntity player, TooltipContext context, CallbackInfoReturnable<List<Text>> ci, List<Text> list)
+    // LocalCaptureの代わりに戻り値のListを直接書き換える - Forge環境ではLVT解析が壊れることがあるため
+    @Inject(method = "getTooltip", at = @At("RETURN"))
+    private void onGetTooltip(@Nullable PlayerEntity player, TooltipContext context, CallbackInfoReturnable<List<Text>> ci)
     {
+        List<Text> list = ci.getReturnValue();
         if (Configs.Generic.AXOLOTL_TOOLTIPS.getBooleanValue() &&
             this.getItem() == Items.AXOLOTL_BUCKET)
         {

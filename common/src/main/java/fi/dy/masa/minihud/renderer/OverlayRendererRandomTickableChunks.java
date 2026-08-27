@@ -1,70 +1,42 @@
 package fi.dy.masa.minihud.renderer;
 
-import java.util.*;
+import java.util.HashSet;
+import java.util.Set;
 import javax.annotation.Nullable;
 import com.google.gson.JsonObject;
-
 import net.minecraft.client.MinecraftClient;
-import net.minecraft.client.gl.VertexBuffer;
-import net.minecraft.client.render.*;
+import net.minecraft.client.render.VertexFormats;
 import net.minecraft.entity.Entity;
-import net.minecraft.util.math.Box;
 import net.minecraft.util.math.ChunkPos;
 import net.minecraft.util.math.Direction;
 import net.minecraft.util.math.Vec3d;
-import net.minecraft.util.profiler.Profiler;
 import net.minecraft.world.World;
-
 import fi.dy.masa.malilib.util.Color4f;
 import fi.dy.masa.malilib.util.JsonUtils;
-import fi.dy.masa.minihud.MiniHUD;
 import fi.dy.masa.minihud.config.Configs;
 import fi.dy.masa.minihud.config.RendererToggle;
 
 public class OverlayRendererRandomTickableChunks extends OverlayRendererBase
 {
-    public static final OverlayRendererRandomTickableChunks INSTANCE_FIXED = new OverlayRendererRandomTickableChunks(RendererToggle.OVERLAY_RANDOM_TICKS_FIXED);
-    public static final OverlayRendererRandomTickableChunks INSTANCE_PLAYER = new OverlayRendererRandomTickableChunks(RendererToggle.OVERLAY_RANDOM_TICKS_PLAYER);
-
+    protected static boolean needsUpdate = true;
+    @Nullable public static Vec3d newPos;
     private static final Direction[] HORIZONTALS = new Direction[] { Direction.NORTH, Direction.SOUTH, Direction.WEST, Direction.EAST };
-    protected boolean needsUpdate = true;
-    @Nullable public Vec3d newPos;
 
-    protected RendererToggle toggle;
+    protected final RendererToggle toggle;
     protected Vec3d pos = Vec3d.ZERO;
     protected double minX;
     protected double minZ;
     protected double maxX;
     protected double maxZ;
 
-    private final HashMap<ChunkPos, List<Box>> chunkMap;
-    private Entity cameraEntity;
-    private boolean hasData;
+    public static void setNeedsUpdate()
+    {
+        needsUpdate = true;
+    }
 
-    protected OverlayRendererRandomTickableChunks(RendererToggle toggle)
+    public OverlayRendererRandomTickableChunks(RendererToggle toggle)
     {
         this.toggle = toggle;
-        this.useCulling = false;
-        this.renderThrough = false;
-        this.chunkMap = new HashMap<>();
-        this.cameraEntity = null;
-        this.hasData = false;
-    }
-
-    @Override
-    public String getName()
-    {
-        return "RandomTickableChunks";
-    }
-
-    public void setNeedsUpdate()
-    {
-        this.needsUpdate = true;
-    }
-
-    public void setNewPos(@Nullable Vec3d pos)
-    {
-        this.newPos = pos;
     }
 
     @Override
@@ -76,14 +48,14 @@ public class OverlayRendererRandomTickableChunks extends OverlayRendererBase
     @Override
     public boolean needsUpdate(Entity entity, MinecraftClient mc)
     {
-        if (this.needsUpdate)
+        if (needsUpdate)
         {
             return true;
         }
 
         if (this.toggle == RendererToggle.OVERLAY_RANDOM_TICKS_FIXED)
         {
-            return this.newPos != null;
+            return newPos != null;
         }
         // Player-following renderer
         else if (this.toggle == RendererToggle.OVERLAY_RANDOM_TICKS_PLAYER)
@@ -95,175 +67,38 @@ public class OverlayRendererRandomTickableChunks extends OverlayRendererBase
     }
 
     @Override
-    public void update(Vec3d cameraPos, Entity entity, MinecraftClient mc, Profiler profiler)
+    public void update(Vec3d cameraPos, Entity entity, MinecraftClient mc)
     {
         if (this.toggle == RendererToggle.OVERLAY_RANDOM_TICKS_PLAYER)
         {
             this.pos = entity.getPos();
         }
-        else if (this.newPos != null)
+        else if (newPos != null)
         {
-            this.pos = this.newPos;
-            this.newPos = null;
+            this.pos = newPos;
+            newPos = null;
         }
 
-        this.chunkMap.clear();
+        final Color4f color = this.toggle == RendererToggle.OVERLAY_RANDOM_TICKS_PLAYER ?
+                Configs.Colors.RANDOM_TICKS_PLAYER_OVERLAY_COLOR.getColor() :
+                Configs.Colors.RANDOM_TICKS_FIXED_OVERLAY_COLOR.getColor();
+
+        RenderObjectBase renderQuads = this.renderObjects.get(0);
+        RenderObjectBase renderLines = this.renderObjects.get(1);
+        BUFFER_1.begin(renderQuads.getGlMode(), VertexFormats.POSITION_COLOR);
+        BUFFER_2.begin(renderLines.getGlMode(), VertexFormats.POSITION_COLOR);
+
         Set<ChunkPos> chunks = this.getRandomTickableChunks(this.pos);
-        this.cameraEntity = entity;
 
         for (ChunkPos pos : chunks)
         {
-//            this.calculateChunkEdgesIfApplicable(pos, chunks, entity.getEntityWorld());
-
-            List<Box> boxes = new ArrayList<>();
-
-            for (Direction side : HORIZONTALS)
-            {
-                ChunkPos posAdj = new ChunkPos(pos.x + side.getOffsetX(), pos.z + side.getOffsetZ());
-
-                if (!chunks.contains(posAdj))
-                {
-                    Box bb = this.calculateChunkEdge(pos, side, entity.getEntityWorld());
-
-                    if (bb != null)
-                    {
-                        boxes.add(bb);
-                    }
-                }
-            }
-
-            if (!boxes.isEmpty())
-            {
-                this.chunkMap.put(pos, boxes);
-                this.hasData = true;
-            }
+            this.renderChunkEdgesIfApplicable(cameraPos, pos, chunks, entity.getEntityWorld(), color);
         }
 
-        if (this.hasData())
-        {
-            this.render(cameraPos, mc, profiler);
-        }
+        renderQuads.uploadData(BUFFER_1);
+        renderLines.uploadData(BUFFER_2);
 
-        this.needsUpdate = false;
-    }
-
-    @Override
-    public boolean hasData()
-    {
-        return this.hasData && !this.chunkMap.isEmpty() && this.cameraEntity != null;
-    }
-
-    @Override
-    public void render(Vec3d cameraPos, MinecraftClient mc, Profiler profiler)
-    {
-        this.allocateBuffers();
-        this.renderQuads(cameraPos, mc, profiler);
-        this.renderOutlines(cameraPos, mc, profiler);
-    }
-
-    private void renderQuads(Vec3d cameraPos, MinecraftClient mc, Profiler profiler)
-    {
-        if (mc.world == null || mc.player == null)
-        {
-            return;
-        }
-
-        profiler.push("random_tick_quads");
-        final Color4f color = this.toggle == RendererToggle.OVERLAY_RANDOM_TICKS_PLAYER ?
-                              Configs.Colors.RANDOM_TICKS_PLAYER_OVERLAY_COLOR.getColor() :
-                              Configs.Colors.RANDOM_TICKS_FIXED_OVERLAY_COLOR.getColor();
-
-        RenderObjectVbo ctx = this.renderObjects.getFirst();
-        BufferBuilder builder = ctx.start(
-		        () -> "minihud:random_tick/quads",
-		        VertexFormat.DrawMode.QUADS, VertexFormats.POSITION_COLOR, GameRenderer::getPositionColorProgram, VertexBuffer.Usage.STATIC
-        );
-
-        this.chunkMap.forEach(
-                (pos, boxes) ->
-                {
-                    for (Box bb : boxes)
-                    {
-                        RenderUtils.renderWallQuads(bb, cameraPos, color, builder);
-                    }
-                });
-
-        try
-        {
-            BuiltBuffer meshData = builder.endNullable();
-
-            if (meshData != null)
-            {
-                ctx.upload(meshData);
-
-                if (this.shouldResort)
-                {
-                    ctx.startResorting(meshData, ctx.createVertexSorter(cameraPos));
-                }
-
-                meshData.close();
-            }
-        }
-        catch (Exception err)
-        {
-            MiniHUD.LOGGER.error("OverlayRendererRandomTickableChunks#renderQuads(): Exception; {}", err.getMessage());
-        }
-
-        profiler.pop();
-    }
-
-    private void renderOutlines(Vec3d cameraPos, MinecraftClient mc, Profiler profiler)
-    {
-        if (mc.world == null || mc.player == null)
-        {
-            return;
-        }
-
-        profiler.push("random_tick_outlines");
-        final Color4f color = this.toggle == RendererToggle.OVERLAY_RANDOM_TICKS_PLAYER ?
-                              Configs.Colors.RANDOM_TICKS_PLAYER_OVERLAY_COLOR.getColor() :
-                              Configs.Colors.RANDOM_TICKS_FIXED_OVERLAY_COLOR.getColor();
-
-        RenderObjectVbo ctx = this.renderObjects.get(1);
-        BufferBuilder builder = ctx.start(
-                () -> "minihud:random_tick/outlines",
-                VertexFormat.DrawMode.DEBUG_LINES, VertexFormats.POSITION_COLOR, GameRenderer::getPositionColorProgram, VertexBuffer.Usage.STATIC
-        );
-
-        this.chunkMap.forEach(
-                (pos, boxes) ->
-                {
-                    for (Box bb : boxes)
-                    {
-                        RenderUtils.renderWallOutlines(bb, 16, 16, true, cameraPos, color, builder);
-                    }
-                });
-
-        try
-        {
-            BuiltBuffer meshData = builder.endNullable();
-
-            if (meshData != null)
-            {
-                ctx.upload(meshData);
-                meshData.close();
-            }
-        }
-        catch (Exception err)
-        {
-            MiniHUD.LOGGER.error("OverlayRendererRandomTickableChunks#renderOutlines(): Exception; {}", err.getMessage());
-        }
-
-        profiler.pop();
-    }
-
-    @Override
-    public void reset()
-    {
-        super.reset();
-        this.chunkMap.clear();
-        this.cameraEntity = null;
-        this.hasData = false;
+        needsUpdate = false;
     }
 
     protected Set<ChunkPos> getRandomTickableChunks(Vec3d posCenter)
@@ -288,65 +123,60 @@ public class OverlayRendererRandomTickableChunks extends OverlayRendererBase
             }
         }
 
-        if (!set.isEmpty())
-        {
-            this.hasData = true;
-        }
-
         return set;
     }
 
-//    protected void calculateChunkEdgesIfApplicable(ChunkPos pos, Set<ChunkPos> chunks, World world)
-//    {
-//        for (Direction side : HORIZONTALS)
-//        {
-//            ChunkPos posAdj = new ChunkPos(pos.x + side.getOffsetX(), pos.z + side.getOffsetZ());
-//
-//            if (!chunks.contains(posAdj))
-//            {
-//                this.calculateChunkEdge(pos, side, world);
-//            }
-//        }
-//    }
-
-    private @Nullable Box calculateChunkEdge(ChunkPos pos, Direction side, World world)
+    protected void renderChunkEdgesIfApplicable(Vec3d cameraPos, ChunkPos pos, Set<ChunkPos> chunks, World world, Color4f color)
     {
-        float minX, minZ, maxX, maxZ;
+        for (Direction side : HORIZONTALS)
+        {
+            ChunkPos posAdj = new ChunkPos(pos.x + side.getOffsetX(), pos.z + side.getOffsetZ());
+
+            if (chunks.contains(posAdj) == false)
+            {
+                this.renderChunkEdge(pos, side, cameraPos, color, world);
+            }
+        }
+    }
+
+    private void renderChunkEdge(ChunkPos pos, Direction side, Vec3d cameraPos, Color4f color, World world)
+    {
+        double minX, minZ, maxX, maxZ;
 
         switch (side)
         {
             case NORTH:
-                minX = (float) (pos.x << 4);
-                minZ = (float) (pos.z << 4);
-                maxX = (float) ((double) (pos.x << 4) + 16.0);
-                maxZ = (float) (pos.z << 4);
+                minX = (double) (pos.x << 4);
+                minZ = (double) (pos.z << 4);
+                maxX = (double) (pos.x << 4) + 16.0;
+                maxZ = (double) (pos.z << 4);
                 break;
             case SOUTH:
-                minX = (float) (pos.x << 4);
-                minZ = (float) ((double) (pos.z << 4) + 16.0);
-                maxX = (float) ((double) (pos.x << 4) + 16.0);
-                maxZ = (float) ((double) (pos.z << 4) + 16.0);
+                minX = (double) (pos.x << 4);
+                minZ = (double) (pos.z << 4) + 16.0;
+                maxX = (double) (pos.x << 4) + 16.0;
+                maxZ = (double) (pos.z << 4) + 16.0;
                 break;
             case WEST:
-                minX = (float) (pos.x << 4);
-                minZ = (float) (pos.z << 4);
-                maxX = (float) (pos.x << 4);
-                maxZ = (float) ((double) (pos.z << 4) + 16.0);
+                minX = (double) (pos.x << 4);
+                minZ = (double) (pos.z << 4);
+                maxX = (double) (pos.x << 4);
+                maxZ = (double) (pos.z << 4) + 16.0;
                 break;
             case EAST:
-                minX = (float) ((double) (pos.x << 4) + 16.0);
-                minZ = (float) (pos.z << 4);
-                maxX = (float) ((double) (pos.x << 4) + 16.0);
-                maxZ = (float) ((double) (pos.z << 4) + 16.0);
+                minX = (double) (pos.x << 4) + 16.0;
+                minZ = (double) (pos.z << 4);
+                maxX = (double) (pos.x << 4) + 16.0;
+                maxZ = (double) (pos.z << 4) + 16.0;
                 break;
             default:
-                return null;
+                return;
         }
 
         int minY = world != null ? world.getBottomY() : -64;
         int maxY = world != null ? world.getTopY() : 320;
 
-        return new Box(minX, minY, minZ, maxX, maxY, maxZ);
+        RenderUtils.renderWallWithLines(minX, minY, minZ, maxX, maxY, maxZ, 16, 16, true, cameraPos, color, BUFFER_1, BUFFER_2);
     }
 
     @Override

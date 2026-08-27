@@ -1,19 +1,16 @@
 package fi.dy.masa.minihud.network;
 
-import fi.dy.masa.malilib.network.IClientPayloadData;
 import fi.dy.masa.minihud.MiniHUD;
 import io.netty.buffer.Unpooled;
 import net.minecraft.nbt.NbtCompound;
-import net.minecraft.nbt.NbtSizeTracker;
+import net.minecraft.nbt.NbtTagSizeTracker;
 import net.minecraft.network.PacketByteBuf;
-import net.minecraft.network.codec.PacketCodec;
-import net.minecraft.network.packet.CustomPayload;
 import net.minecraft.util.math.BlockPos;
 
 import javax.annotation.Nonnull;
 import javax.annotation.Nullable;
 
-public class ServuxEntitiesPacket implements IClientPayloadData
+public class ServuxEntitiesPacket
 {
     private Type packetType;
     private int transactionId;
@@ -130,19 +127,16 @@ public class ServuxEntitiesPacket implements IClientPayloadData
         }
     }
 
-    @Override
     public int getVersion()
     {
         return PROTOCOL_VERSION;
     }
 
-    @Override
     public int getPacketType()
     {
         return this.packetType.get();
     }
 
-    @Override
     public int getTotalSize()
     {
         int total = 2;
@@ -192,13 +186,11 @@ public class ServuxEntitiesPacket implements IClientPayloadData
 
     public boolean hasNbt() { return this.nbt != null && !this.nbt.isEmpty(); }
 
-    @Override
     public boolean isEmpty()
     {
         return !this.hasBuffer() && !this.hasNbt();
     }
 
-    @Override
     public void toPacket(PacketByteBuf output)
     {
         output.writeVarInt(this.packetType.get());
@@ -332,7 +324,7 @@ public class ServuxEntitiesPacket implements IClientPayloadData
             {
                 try
                 {
-                    return ServuxEntitiesPacket.SimpleBlockResponse(input.readBlockPos(), (NbtCompound) input.readNbt(NbtSizeTracker.ofUnlimitedBytes()));
+                    return ServuxEntitiesPacket.SimpleBlockResponse(input.readBlockPos(), (NbtCompound) input.readNbt(new net.minecraft.nbt.NbtTagSizeTracker(0L)));
                 }
                 catch (Exception e)
                 {
@@ -343,7 +335,7 @@ public class ServuxEntitiesPacket implements IClientPayloadData
             {
                 try
                 {
-                    return ServuxEntitiesPacket.SimpleEntityResponse(input.readVarInt(), (NbtCompound) input.readNbt(NbtSizeTracker.ofUnlimitedBytes()));
+                    return ServuxEntitiesPacket.SimpleEntityResponse(input.readVarInt(), (NbtCompound) input.readNbt(new net.minecraft.nbt.NbtTagSizeTracker(0L)));
                 }
                 catch (Exception e)
                 {
@@ -404,7 +396,6 @@ public class ServuxEntitiesPacket implements IClientPayloadData
         return null;
     }
 
-    @Override
     public void clear()
     {
         if (this.nbt != null && !this.nbt.isEmpty())
@@ -457,25 +448,4 @@ public class ServuxEntitiesPacket implements IClientPayloadData
         int get() { return this.type; }
     }
 
-    public record Payload(ServuxEntitiesPacket data) implements CustomPayload
-    {
-        public static final Id<ServuxEntitiesPacket.Payload> ID = new Id<>(ServuxEntitiesHandler.CHANNEL_ID);
-        public static final PacketCodec<PacketByteBuf, ServuxEntitiesPacket.Payload> CODEC = CustomPayload.codecOf(ServuxEntitiesPacket.Payload::write, ServuxEntitiesPacket.Payload::new);
-
-        public Payload(PacketByteBuf input)
-        {
-            this(fromPacket(input));
-        }
-
-        private void write(PacketByteBuf output)
-        {
-            data.toPacket(output);
-        }
-
-        @Override
-        public Id<? extends CustomPayload> getId()
-        {
-            return ID;
-        }
-    }
 }

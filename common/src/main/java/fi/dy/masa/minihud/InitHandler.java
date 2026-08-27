@@ -47,7 +47,6 @@ public class InitHandler implements IInitializationHandler
 
         TickHandler.getInstance().registerClientTickHandler(new ClientTickHandler());
         TickHandler.getInstance().registerClientTickHandler(EntitiesDataManager.getInstance());
-        TickHandler.getInstance().registerClientTickHandler(OverlayRendererVillagerInfo.INSTANCE);
 
         KeyCallbacks.init();
     }

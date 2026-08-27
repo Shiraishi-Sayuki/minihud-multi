@@ -9,7 +9,6 @@ import javax.annotation.Nullable;
 
 import net.minecraft.client.MinecraftClient;
 import net.minecraft.server.integrated.IntegratedServer;
-import net.minecraft.server.world.OptionalChunk;
 import net.minecraft.server.world.ServerWorld;
 import net.minecraft.util.math.ChunkPos;
 import net.minecraft.world.World;
@@ -22,7 +21,7 @@ import fi.dy.masa.minihud.util.DataStorage;
 public class InfoLineChunkCache
 {
     public static final InfoLineChunkCache INSTANCE = new InfoLineChunkCache();
-    private final Map<ChunkPos, CompletableFuture<OptionalChunk<Chunk>>> chunkFutures = new HashMap<>();
+    private final Map<ChunkPos, CompletableFuture<Chunk>> chunkFutures = new HashMap<>();
     @Nullable private WorldChunk cachedClientChunk;
     private MinecraftClient mc;
 
@@ -67,14 +66,14 @@ public class InfoLineChunkCache
     @Nullable
     public WorldChunk getChunk(ChunkPos chunkPos)
     {
-        CompletableFuture<OptionalChunk<Chunk>> future = this.chunkFutures.get(chunkPos);
+        CompletableFuture<Chunk> future = this.chunkFutures.get(chunkPos);
 
         if (future == null)
         {
             future = this.setupChunkFuture(chunkPos);
         }
 
-        OptionalChunk<Chunk> chunkResult = future.getNow(null);
+        Chunk chunkResult = future.getNow(null);
 
         if (chunkResult == null)
         {
@@ -82,11 +81,9 @@ public class InfoLineChunkCache
         }
         else
         {
-            Chunk chunk = chunkResult.orElse(null);
-
-            if (chunk instanceof WorldChunk)
+            if (chunkResult instanceof WorldChunk)
             {
-                return (WorldChunk) chunk;
+                return (WorldChunk) chunkResult;
             }
             else
             {
@@ -95,10 +92,10 @@ public class InfoLineChunkCache
         }
     }
 
-    public CompletableFuture<OptionalChunk<Chunk>> setupChunkFuture(ChunkPos chunkPos)
+    public CompletableFuture<Chunk> setupChunkFuture(ChunkPos chunkPos)
     {
         IntegratedServer server = this.getData().getIntegratedServer();
-        CompletableFuture<OptionalChunk<Chunk>> future = null;
+        CompletableFuture<Chunk> future = null;
 
         if (server != null)
         {
@@ -108,13 +105,13 @@ public class InfoLineChunkCache
             {
                 future = world.getChunkManager()
                               .getChunkFutureSyncOnMainThread(chunkPos.x, chunkPos.z, ChunkStatus.FULL, false)
-                              .thenApply((either) -> either.map((chunk) -> (WorldChunk) chunk) );
+                              .thenApply(either -> either.left().orElse(null));
             }
         }
 
         if (future == null)
         {
-            future = CompletableFuture.completedFuture(OptionalChunk.of(this.getClientChunk(chunkPos)));
+            future = CompletableFuture.completedFuture(this.getClientChunk(chunkPos));
         }
 
         this.chunkFutures.put(chunkPos, future);

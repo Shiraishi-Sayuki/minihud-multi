@@ -1,128 +1,41 @@
 package fi.dy.masa.minihud.network;
 
-import java.util.Objects;
-
-import net.minecraft.client.network.ClientPlayNetworkHandler;
+import java.util.List;
 import net.minecraft.network.PacketByteBuf;
-import net.minecraft.network.packet.CustomPayload;
 import net.minecraft.util.Identifier;
+import fi.dy.masa.malilib.network.IPluginChannelHandler;
+import fi.dy.masa.malilib.network.ClientPacketChannelHandler;
 
-import fi.dy.masa.malilib.network.IClientPayloadData;
-import fi.dy.masa.malilib.network.IPluginClientPlayHandler;
-import fi.dy.masa.minihud.MiniHUD;
-import fi.dy.masa.minihud.data.DebugDataManager;
-
-public abstract class ServuxDebugHandler<T extends CustomPayload> implements IPluginClientPlayHandler<T>
+public class ServuxDebugHandler implements IPluginChannelHandler
 {
-    private static final ServuxDebugHandler<ServuxDebugPacket.Payload> INSTANCE = new ServuxDebugHandler<>() {
-    };
-    public static ServuxDebugHandler<ServuxDebugPacket.Payload> getInstance() { return INSTANCE; }
+    private static final ServuxDebugHandler INSTANCE = new ServuxDebugHandler() {};
+    public static ServuxDebugHandler getInstance() { return INSTANCE; }
 
-    public static final Identifier CHANNEL_ID = Identifier.of("servux", "debug_service");
+    public static final Identifier CHANNEL_ID = new Identifier("servux:debug");
 
-    private boolean servuxRegistered;
     private boolean payloadRegistered = false;
-    private int failures = 0;
-    private static final int MAX_FAILURES = 4;
-    //private long readingSessionKey = -1;
 
     @Override
-    public Identifier getPayloadChannel() { return CHANNEL_ID; }
+    public List<Identifier> getChannels() { return List.of(CHANNEL_ID); }
 
     @Override
-    public boolean isPlayRegistered(Identifier channel)
-    {
-        if (channel.equals(CHANNEL_ID))
-        {
-            return this.payloadRegistered;
-        }
-
-        return false;
+    public void onPacketReceived(PacketByteBuf buf) {
+        // Stub for 1.20.1 - packet handling to be restored
     }
 
-    @Override
-    public void setPlayRegistered(Identifier channel)
-    {
-        if (channel.equals(CHANNEL_ID))
-        {
-            this.payloadRegistered = true;
-        }
+    public Identifier getNetworkChannel() { return CHANNEL_ID; }
+    public Object getNetworkHandler() { return this; }
+    public void registerPlayReceiver() { ClientPacketChannelHandler.getInstance().registerClientChannelHandler(this); payloadRegistered = true; }
+    public void unregisterPlayReceiver() { ClientPacketChannelHandler.getInstance().unregisterClientChannelHandler(this); payloadRegistered = false; }
+    public boolean isPlayRegistered(Identifier channel) { return payloadRegistered && channel.equals(CHANNEL_ID); }
+    public void setPlayRegistered(Identifier channel) { if (channel.equals(CHANNEL_ID)) payloadRegistered = true; }
+    public void reset(Identifier channel) { payloadRegistered = false; }
+    public void resetFailures(Identifier channel) {}
+    public void encodePacket(ServuxDebugPacket packet) {
+        // Stub
     }
 
-    @Override
-    public <P extends IClientPayloadData> void decodeClientData(Identifier channel, P data)
-    {
-        ServuxDebugPacket packet = (ServuxDebugPacket) data;
-
-        if (!channel.equals(CHANNEL_ID) || packet == null)
-        {
-            return;
-        }
-        if (Objects.requireNonNull(packet.getType()) == ServuxDebugPacket.Type.PACKET_S2C_METADATA)
-        {
-            if (DebugDataManager.getInstance().receiveMetadata(packet.getCompound()))
-            {
-                this.servuxRegistered = true;
-            }
-        }
-        else
-        {
-            MiniHUD.LOGGER.warn("ServuxDebugHandler#decodeClientData(): received unhandled packetType {} of size {} bytes.", packet.getPacketType(), packet.getTotalSize());
-        }
-    }
-
-    @Override
-    public void reset(Identifier channel)
-    {
-        if (channel.equals(CHANNEL_ID) && this.servuxRegistered)
-        {
-            this.servuxRegistered = false;
-            this.failures = 0;
-            //this.readingSessionKey = -1;
-        }
-    }
-
-    public void resetFailures(Identifier channel)
-    {
-        if (channel.equals(CHANNEL_ID) && this.failures > 0)
-        {
-            this.failures = 0;
-        }
-    }
-
-    @Override
-    public void encodeWithSplitter(PacketByteBuf buf, ClientPlayNetworkHandler handler)
-    {
-        // NO-OP
-    }
-
-    @Override
-    public void receivePlayPayload(T payload, Object ctx)
-    {
-        if (payload.getId().id().equals(CHANNEL_ID))
-        {
-            ServuxDebugHandler.INSTANCE.decodeClientData(CHANNEL_ID, ((ServuxDebugPacket.Payload) payload).data());
-        }
-    }
-
-    @Override
-    public <P extends IClientPayloadData> void encodeClientData(P data)
-    {
-        ServuxDebugPacket packet = (ServuxDebugPacket) data;
-
-        if (!ServuxDebugHandler.INSTANCE.sendPlayPayload(new ServuxDebugPacket.Payload(packet)))
-        {
-            if (this.failures > MAX_FAILURES)
-            {
-                MiniHUD.debugLog("ServuxDebugHandler#encodeClientData(): encountered [{}] sendPayload failures, cancelling any Servux join attempt(s)", MAX_FAILURES);
-                this.servuxRegistered = false;
-                ServuxDebugHandler.INSTANCE.unregisterPlayReceiver();
-                DebugDataManager.getInstance().onPacketFailure();
-            }
-            else
-            {
-                this.failures++;
-            }
-        }
+    public void encodeClientData(ServuxDebugPacket packet) {
+        // Stub
     }
 }

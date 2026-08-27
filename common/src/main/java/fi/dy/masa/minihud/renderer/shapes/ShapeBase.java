@@ -5,11 +5,8 @@ import java.util.ArrayList;
 import java.util.List;
 import com.google.gson.JsonObject;
 import com.google.gson.JsonPrimitive;
-
 import net.minecraft.client.MinecraftClient;
 import net.minecraft.entity.Entity;
-import net.minecraft.util.math.Vec3d;
-
 import fi.dy.masa.malilib.interfaces.IRangeChangeListener;
 import fi.dy.masa.malilib.util.Color4f;
 import fi.dy.masa.malilib.util.JsonUtils;
@@ -29,38 +26,21 @@ public abstract class ShapeBase extends OverlayRendererBase implements IRangeCha
     protected String displayName;
     protected ShapeRenderType renderType;
     protected Color4f color;
-    protected Color4f colorLines;
     protected boolean enabled;
     protected boolean needsUpdate;
-    protected boolean renderLines;
-    protected boolean renderThroughShape;
 
     public ShapeBase(ShapeType type, Color4f color)
     {
         this.mc = MinecraftClient.getInstance();
         this.type = type;
         this.color = color;
-        this.colorLines = Color4f.WHITE;
         this.layerRange = new LayerRange(this);
         this.renderType = ShapeRenderType.OUTER_EDGE;
         this.displayName = type.getDisplayName();
         this.needsUpdate = true;
-        this.renderLines = false;
-        this.renderThroughShape = false;
     }
 
-    @Override
-    public String getName()
-    {
-        return "Shapes_"+this.displayName;
-    }
-
-	/**
-	 * Called when a shape is added to the list
-	 */
-	public void onShapeInit() {}
-
-	public ShapeType getType()
+    public ShapeType getType()
     {
         return this.type;
     }
@@ -80,12 +60,7 @@ public abstract class ShapeBase extends OverlayRendererBase implements IRangeCha
         return this.color;
     }
 
-    public Color4f getColorLines()
-    {
-        return this.colorLines;
-    }
-
-	public ShapeRenderType getRenderType()
+    public ShapeRenderType getRenderType()
     {
         return this.renderType;
     }
@@ -115,20 +90,6 @@ public abstract class ShapeBase extends OverlayRendererBase implements IRangeCha
         this.setColor(StringUtils.getColor(newValue, 0));
     }
 
-    public void setColorLines(int newColor)
-    {
-        if (newColor != this.colorLines.intValue)
-        {
-            this.colorLines = Color4f.fromColor(newColor);
-            this.setNeedsUpdate();
-        }
-    }
-
-    public void setColorLinesFromString(String newValue)
-    {
-        this.setColorLines(StringUtils.getColor(newValue, 0));
-    }
-
     public boolean isEnabled()
     {
         return this.enabled;
@@ -144,36 +105,9 @@ public abstract class ShapeBase extends OverlayRendererBase implements IRangeCha
         }
     }
 
-    public void toggleRenderLines()
-    {
-        this.renderLines = ! this.renderLines;
-        this.setNeedsUpdate();
-    }
-
-    public boolean shouldRenderLines()
-    {
-        return this.renderLines;
-    }
-
-    public void toggleRenderThrough()
-    {
-        this.renderThroughShape = ! this.renderThroughShape;
-        this.renderThrough = this.renderThroughShape;
-        this.setNeedsUpdate();
-    }
-
-    public boolean shouldRenderThrough()
-    {
-        return this.renderThroughShape || this.renderThrough;
-    }
-
     public void setNeedsUpdate()
     {
         this.needsUpdate = true;
-    }
-
-    public void moveToPosition(Vec3d pos)
-    {
     }
 
     @Override
@@ -228,11 +162,8 @@ public abstract class ShapeBase extends OverlayRendererBase implements IRangeCha
 
         obj.add("type", new JsonPrimitive(this.type.getId()));
         obj.add("color", new JsonPrimitive(this.color.intValue));
-        obj.add("color_lines", new JsonPrimitive(this.colorLines.intValue));
         obj.add("enabled", new JsonPrimitive(this.enabled));
         obj.add("display_name", new JsonPrimitive(this.displayName));
-        obj.add("render_lines", new JsonPrimitive(this.renderLines));
-        obj.add("render_through", new JsonPrimitive(this.renderThroughShape));
         obj.add("render_type", new JsonPrimitive(this.renderType.getStringValue()));
         obj.add("layers", this.layerRange.toJson());
 
@@ -249,25 +180,9 @@ public abstract class ShapeBase extends OverlayRendererBase implements IRangeCha
             this.color = Color4f.fromColor(JsonUtils.getInteger(obj, "color"));
         }
 
-        if (JsonUtils.hasInteger(obj, "color_lines"))
-        {
-            this.colorLines = Color4f.fromColor(JsonUtils.getInteger(obj, "color_lines"));
-        }
-
         if (JsonUtils.hasObject(obj, "layers"))
         {
             this.layerRange.fromJson(JsonUtils.getNestedObject(obj, "layers", false));
-        }
-
-        if (JsonUtils.hasBoolean(obj, "render_lines"))
-        {
-            this.renderLines = JsonUtils.getBoolean(obj, "render_lines");
-        }
-
-        if (JsonUtils.hasBoolean(obj, "render_through"))
-        {
-            this.renderThroughShape = JsonUtils.getBoolean(obj, "render_through");
-            this.renderThrough = this.renderThroughShape;
         }
 
         if (JsonUtils.hasString(obj, "render_type"))

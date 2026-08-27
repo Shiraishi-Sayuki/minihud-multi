@@ -1,36 +1,38 @@
 {
-	"schemaVersion": 1,
-	"id": "minihud",
-	"name": "MiniHUD",
-	"version": "${mod_version}",
-	"description": "Configurable \"mini-F3\" info lines, and various overlay renderers",
-	"authors": [
-		"masa"
-	],
-	"contact": {
-		"homepage": "https://www.curseforge.com/minecraft/mc-mods/minihud",
-		"issues": "https://github.com/maruohon/minihud/issues",
-		"sources": "https://github.com/maruohon/minihud",
-		"twitter": "https://twitter.com/maruohon",
-		"discord": "https://discordapp.com/channels/211786369951989762/453662800460644354/"
-	},
-	"license": "LGPLv3",
-	"icon": "assets/minihud/icon.png",
-	"environment": "client",
-	"entrypoints": {
-		"main": [
-			"com.sayuki.minihud.fabric.MiniHudFabric"
-		],
-		"modmenu": [
-			"fi.dy.masa.minihud.compat.modmenu.ModMenuImpl"
-		]
-	},
-	"mixins": [
-		"mixins.minihud.json"
-	],
-	"depends": {
-		"minecraft": ">=1.21 <=1.21.1",
-		"malilib": ">=0.21.10-"
-	},
-	"accessWidener": "minihud.accesswidener"
+  "schemaVersion": 1,
+  "id": "minihud",
+  "name": "MiniHUD",
+  "version": "${mod_version}",
+  "description": "Configurable \"mini-F3\" info lines, and various overlay renderers",
+  "authors": [
+    "masa",
+    "Shiraishi Sayuki (multiloader port)"
+  ],
+  "contact": {
+    "homepage": "https://www.curseforge.com/minecraft/mc-mods/minihud",
+    "issues": "https://github.com/maruohon/minihud/issues",
+    "sources": "https://github.com/maruohon/minihud",
+    "twitter": "https://twitter.com/maruohon",
+    "discord": "https://discordapp.com/channels/211786369951989762/453662800460644354/"
+  },
+  "license": "LGPLv3",
+  "icon": "assets/minihud/icon.png",
+  "environment": "client",
+  "entrypoints": {
+    "main": [
+      "com.sayuki.minihud.fabric.MiniHudFabric"
+    ],
+    "modmenu": [
+      "fi.dy.masa.minihud.compat.modmenu.ModMenuImpl"
+    ]
+  },
+  "mixins": [
+    "mixins.minihud.json"
+  ],
+  "depends": {
+    "minecraft": "1.20.x",
+    "malilib": "*",
+    "fabric-resource-loader-v0": "*"
+  },
+  "accessWidener": "minihud.accesswidener"
 }

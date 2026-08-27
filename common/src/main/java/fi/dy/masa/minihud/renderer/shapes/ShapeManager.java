@@ -33,17 +33,8 @@ public class ShapeManager
         return this.shapes;
     }
 
-    public void setAllNeedsUpdate()
-    {
-        for (ShapeBase shape : this.shapes)
-        {
-            shape.setNeedsUpdate();
-        }
-    }
-
     public void addShape(ShapeBase shape)
     {
-		shape.onShapeInit();
         this.shapes.add(shape);
 
         RenderContainer.INSTANCE.addRenderer(shape);

@@ -59,17 +59,8 @@ public class InfoLineBeeCount extends InfoLine
 
         if (beType.equals(BlockEntityType.BEEHIVE))
         {
-            Pair<List<BeehiveBlockEntity.BeeData>, BlockPos> bees = NbtBlockUtils.getBeesDataFromNbt(nbt);
-
-            // This probably means no Server Data, so don't show the flower_pos
-            if (bees.getRight().equals(BlockPos.ORIGIN))
-            {
-                list.add(this.translate(BEES_KEY, bees.getLeft().size()));
-            }
-            else
-            {
-                list.add(this.translate(BEES_KEY+".flower_pos", bees.getLeft().size(), bees.getRight().toShortString()));
-            }
+            net.minecraft.nbt.NbtList beeList = nbt.getList("Bees", net.minecraft.nbt.NbtElement.COMPOUND_TYPE);
+            list.add(this.translate(BEES_KEY, beeList.size()));
         }
 
         return list;

@@ -26,7 +26,7 @@ public abstract class MixinClientPlayNetworkHandler
     @Inject(method = "onChunkData", at = @At("RETURN"))
     private void minihud_markChunkChangedFullChunk(ChunkDataS2CPacket packet, CallbackInfo ci)
     {
-        NotificationUtils.onChunkData(packet.getChunkX(), packet.getChunkZ(), packet.getChunkData());
+        NotificationUtils.onChunkData(packet.getX(), packet.getZ(), packet.getChunkData());
     }
 
     @Inject(method = "onChunkDeltaUpdate", at = @At("RETURN"))
@@ -45,8 +45,8 @@ public abstract class MixinClientPlayNetworkHandler
     @Inject(method = "onPlayerListHeader", at = @At("RETURN"))
     private void minihud_onHandlePlayerListHeaderFooter(PlayerListHeaderS2CPacket packetIn, CallbackInfo ci)
     {
-        DataStorage.getInstance().handleCarpetServerTPSData(packetIn.footer());
-        DataStorage.getInstance().getMobCapData().parsePlayerListFooterMobCapData(packetIn.footer());
+        DataStorage.getInstance().handleCarpetServerTPSData(packetIn.getHeader());
+        DataStorage.getInstance().getMobCapData().parsePlayerListFooterMobCapData(packetIn.getFooter());
     }
 
     @Inject(method = "onWorldTimeUpdate", at = @At("RETURN"))

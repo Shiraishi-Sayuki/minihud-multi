@@ -6,13 +6,10 @@ import io.netty.buffer.Unpooled;
 
 import net.minecraft.nbt.NbtCompound;
 import net.minecraft.network.PacketByteBuf;
-import net.minecraft.network.codec.PacketCodec;
-import net.minecraft.network.packet.CustomPayload;
 
-import fi.dy.masa.malilib.network.IClientPayloadData;
 import fi.dy.masa.minihud.MiniHUD;
 
-public class ServuxHudPacket implements IClientPayloadData
+public class ServuxHudPacket
 {
     private Type packetType;
     private NbtCompound nbt;
@@ -131,19 +128,16 @@ public class ServuxHudPacket implements IClientPayloadData
         }
     }
 
-    @Override
     public int getVersion()
     {
         return PROTOCOL_VERSION;
     }
 
-    @Override
     public int getPacketType()
     {
         return this.packetType.get();
     }
 
-    @Override
     public int getTotalSize()
     {
         int total = 2;
@@ -179,13 +173,11 @@ public class ServuxHudPacket implements IClientPayloadData
 
     public boolean hasNbt() { return this.nbt != null && !this.nbt.isEmpty(); }
 
-    @Override
     public boolean isEmpty()
     {
         return !this.hasBuffer() && !this.hasNbt();
     }
 
-    @Override
     public void toPacket(PacketByteBuf output)
     {
         output.writeVarInt(this.packetType.get());
@@ -353,7 +345,6 @@ public class ServuxHudPacket implements IClientPayloadData
         return null;
     }
 
-    @Override
     public void clear()
     {
         if (this.nbt != null && !this.nbt.isEmpty())
@@ -402,25 +393,4 @@ public class ServuxHudPacket implements IClientPayloadData
         int get() { return this.type; }
     }
 
-    public record Payload(ServuxHudPacket data) implements CustomPayload
-    {
-        public static final Id<Payload> ID = new Id<>(ServuxHudHandler.CHANNEL_ID);
-        public static final PacketCodec<PacketByteBuf, Payload> CODEC = CustomPayload.codecOf(Payload::write, Payload::new);
-
-        public Payload(PacketByteBuf input)
-        {
-            this(fromPacket(input));
-        }
-
-        private void write(PacketByteBuf output)
-        {
-            data.toPacket(output);
-        }
-
-        @Override
-        public Id<? extends CustomPayload> getId()
-        {
-            return ID;
-        }
-    }
 }

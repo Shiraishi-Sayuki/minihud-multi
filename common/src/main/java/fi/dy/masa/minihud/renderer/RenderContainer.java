@@ -3,131 +3,174 @@ package fi.dy.masa.minihud.renderer;
 import java.util.ArrayList;
 import java.util.List;
 import com.google.gson.JsonObject;
-import org.joml.Matrix4f;
-import org.joml.Matrix4fStack;
-
 import com.mojang.blaze3d.systems.RenderSystem;
+import org.joml.Matrix4f;
 import net.minecraft.client.MinecraftClient;
-import net.minecraft.client.render.Camera;
+import net.minecraft.client.util.math.MatrixStack;
 import net.minecraft.entity.Entity;
 import net.minecraft.util.math.Vec3d;
-import net.minecraft.util.profiler.Profiler;
-
 import fi.dy.masa.malilib.util.JsonUtils;
 import fi.dy.masa.malilib.util.PositionUtils;
+import fi.dy.masa.minihud.config.RendererToggle;
 
 public class RenderContainer
 {
     public static final RenderContainer INSTANCE = new RenderContainer();
+
     private final List<OverlayRendererBase> renderers = new ArrayList<>();
+    protected boolean resourcesAllocated;
     protected int countActive;
 
     private RenderContainer()
     {
         this.addRenderer(OverlayRendererBeaconRange.INSTANCE);
         this.addRenderer(OverlayRendererBiomeBorders.INSTANCE);
-        this.addRenderer(OverlayRendererBlockGrid.INSTANCE);
+        this.addRenderer(new OverlayRendererBlockGrid());
         this.addRenderer(OverlayRendererConduitRange.INSTANCE);
         this.addRenderer(OverlayRendererLightLevel.INSTANCE);
-        this.addRenderer(OverlayRendererHandheldBeaconRange.INSTANCE);
-        this.addRenderer(OverlayRendererRandomTickableChunks.INSTANCE_FIXED);
-        this.addRenderer(OverlayRendererRandomTickableChunks.INSTANCE_PLAYER);
-        this.addRenderer(OverlayRendererRegion.INSTANCE);
-        this.addRenderer(OverlayRendererSlimeChunks.INSTANCE);
-        this.addRenderer(OverlayRendererSpawnableColumnHeights.INSTANCE);
-        this.addRenderer(OverlayRendererSpawnChunks.INSTANCE_PLAYER);
-        this.addRenderer(OverlayRendererSpawnChunks.INSTANCE_REAL);
+        this.addRenderer(new OverlayRendererRandomTickableChunks(RendererToggle.OVERLAY_RANDOM_TICKS_FIXED));
+        this.addRenderer(new OverlayRendererRandomTickableChunks(RendererToggle.OVERLAY_RANDOM_TICKS_PLAYER));
+        this.addRenderer(new OverlayRendererRegion());
+        this.addRenderer(new OverlayRendererSlimeChunks());
+        this.addRenderer(new OverlayRendererSpawnableColumnHeights());
+        this.addRenderer(new OverlayRendererSpawnChunks(RendererToggle.OVERLAY_SPAWN_CHUNK_OVERLAY_REAL));
+        this.addRenderer(new OverlayRendererSpawnChunks(RendererToggle.OVERLAY_SPAWN_CHUNK_OVERLAY_PLAYER));
         this.addRenderer(OverlayRendererStructures.INSTANCE);
-        this.addRenderer(OverlayRendererVillagerInfo.INSTANCE);
     }
 
     public void addRenderer(OverlayRendererBase renderer)
     {
+        if (this.resourcesAllocated)
+        {
+            renderer.allocateGlResources();
+        }
+
         this.renderers.add(renderer);
     }
 
     public void removeRenderer(OverlayRendererBase renderer)
     {
         this.renderers.remove(renderer);
+
+        if (this.resourcesAllocated)
+        {
+            renderer.deleteGlResources();
+        }
     }
 
-    public void render(Entity entity, Matrix4f posMatrix, Matrix4f projMatrix, MinecraftClient mc, Camera camera, Profiler profiler)
+    public void render(Entity entity, MatrixStack matrixStack, Matrix4f projMatrix, MinecraftClient mc)
     {
-        profiler.push("render_container");
-        this.update(camera.getPos(), entity, mc, profiler);
-//        this.draw(camera.getPos(), posMatrix, projMatrix, mc, frustum, fog, profiler);
-        this.draw(camera.getPos(), posMatrix, projMatrix, profiler);
-        profiler.pop();
+        Vec3d cameraPos = mc.gameRenderer.getCamera().getPos();
+
+        this.update(cameraPos, entity, mc);
+        this.draw(cameraPos, matrixStack, projMatrix, mc);
     }
 
-    protected void update(Vec3d cameraPos, Entity entity, MinecraftClient mc, Profiler profiler)
+    protected void update(Vec3d cameraPos, Entity entity, MinecraftClient mc)
     {
-        profiler.swap("render_update");
-
+        mc.getProfiler().push(() -> "RenderContainer#update()");
+        this.allocateResourcesIfNeeded();
         this.countActive = 0;
 
         for (OverlayRendererBase renderer : this.renderers)
         {
-            profiler.push("update_"+renderer.getName());
+            mc.getProfiler().push(() -> renderer.getClass().getName());
 
             if (renderer.shouldRender(mc))
             {
                 if (renderer.needsUpdate(entity, mc))
                 {
-//                    MiniHUD.LOGGER.error("Container: renderer [{}] needs update!", renderer.getName());
                     renderer.lastUpdatePos = PositionUtils.getEntityBlockPos(entity);
-                    renderer.update(cameraPos, entity, mc, profiler);
                     renderer.setUpdatePosition(cameraPos);
+                    renderer.update(cameraPos, entity, mc);
                 }
 
                 ++this.countActive;
             }
-            else
-            {
-                renderer.reset();
-            }
 
-            profiler.pop();
+            mc.getProfiler().pop();
         }
+
+        mc.getProfiler().pop();
     }
 
-    protected void draw(Vec3d cameraPos, Matrix4f posMatrix, Matrix4f projMatrix, Profiler profiler)
+    protected void draw(Vec3d cameraPos, MatrixStack matrixStack, Matrix4f projMatrix, MinecraftClient mc)
     {
-        profiler.swap("render_draw");
-
-        if (this.countActive > 0)
+        if (this.resourcesAllocated && this.countActive > 0)
         {
-            Matrix4fStack matrix4fstack = RenderSystem.getModelViewStack();
+            mc.getProfiler().push(() -> "RenderContainer#draw()");
+
+            RenderSystem.disableCull();
+            RenderSystem.enableDepthTest();
+            RenderSystem.depthMask(false);
+            RenderSystem.polygonOffset(-3f, -3f);
+            RenderSystem.enablePolygonOffset();
+
+            fi.dy.masa.malilib.render.RenderUtils.setupBlend();
+            fi.dy.masa.malilib.render.RenderUtils.color(1f, 1f, 1f, 1f);
 
             for (IOverlayRenderer renderer : this.renderers)
             {
-                profiler.push("draw_"+renderer.getName());
+                mc.getProfiler().push(() -> renderer.getClass().getName());
 
-//                if (renderer.shouldRender(mc))
-                if (renderer.hasData())
+                if (renderer.shouldRender(mc))
                 {
                     Vec3d updatePos = renderer.getUpdatePosition();
+                    matrixStack.push();
+                    matrixStack.translate(updatePos.x - cameraPos.x, updatePos.y - cameraPos.y, updatePos.z - cameraPos.z);
 
-                    matrix4fstack.pushMatrix();
-                    matrix4fstack.translate((float) (updatePos.x - cameraPos.x), (float) (updatePos.y - cameraPos.y), (float) (updatePos.z - cameraPos.z));
-                    renderer.draw(cameraPos, matrix4fstack, projMatrix);
-                    matrix4fstack.popMatrix();
-                }
-                else
-                {
-                    renderer.reset();
+                    renderer.draw(matrixStack, projMatrix);
+
+                    matrixStack.pop();
                 }
 
-                profiler.pop();
+                mc.getProfiler().pop();
             }
+
+            RenderSystem.polygonOffset(0f, 0f);
+            RenderSystem.disablePolygonOffset();
+            fi.dy.masa.malilib.render.RenderUtils.color(1f, 1f, 1f, 1f);
+            RenderSystem.disableBlend();
+            RenderSystem.enableDepthTest();
+            RenderSystem.enableCull();
+            RenderSystem.depthMask(true);
+
+            mc.getProfiler().pop();
         }
     }
 
-    protected void reset()
+    protected void allocateResourcesIfNeeded()
     {
-        for (OverlayRendererBase renderer : this.renderers)
+        if (this.resourcesAllocated == false)
         {
-            renderer.reset();
+            this.deleteGlResources();
+            this.allocateGlResources();
+        }
+    }
+
+    protected void allocateGlResources()
+    {
+        if (this.resourcesAllocated == false)
+        {
+            for (OverlayRendererBase renderer : this.renderers)
+            {
+                renderer.allocateGlResources();
+            }
+
+            this.resourcesAllocated = true;
+        }
+    }
+
+    protected void deleteGlResources()
+    {
+        if (this.resourcesAllocated)
+        {
+            for (OverlayRendererBase renderer : this.renderers)
+            {
+                renderer.deleteGlResources();
+            }
+
+            this.resourcesAllocated = false;
         }
     }
 
@@ -139,7 +182,7 @@ public class RenderContainer
         {
             String id = renderer.getSaveId();
 
-            if (!id.isEmpty())
+            if (id.isEmpty() == false)
             {
                 obj.add(id, renderer.toJson());
             }
@@ -154,7 +197,7 @@ public class RenderContainer
         {
             String id = renderer.getSaveId();
 
-            if (!id.isEmpty() && JsonUtils.hasObject(obj, id))
+            if (id.isEmpty() == false && JsonUtils.hasObject(obj, id))
             {
                 renderer.fromJson(obj.get(id).getAsJsonObject());
             }

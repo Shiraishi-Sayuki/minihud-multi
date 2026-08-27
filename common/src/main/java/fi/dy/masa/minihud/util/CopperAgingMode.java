@@ -1,11 +1,8 @@
 package fi.dy.masa.minihud.util;
 
 import javax.annotation.Nonnull;
-import net.minecraft.network.codec.PacketCodec;
-import net.minecraft.network.codec.PacketCodecs;
 import net.minecraft.util.StringIdentifiable;
 import com.google.common.collect.ImmutableList;
-import io.netty.buffer.ByteBuf;
 import org.jetbrains.annotations.NotNull;
 
 import fi.dy.masa.malilib.config.IConfigOptionListEntry;
@@ -24,8 +21,6 @@ public enum CopperAgingMode implements IConfigOptionListEntry, StringIdentifiabl
 	ALL				("all",			"minihud.label.copper_aging.all"),
 	;
 
-	public static final StringIdentifiable.EnumCodec<CopperAgingMode> CODEC = StringIdentifiable.createCodec(CopperAgingMode::values);
-	public static final PacketCodec<ByteBuf, CopperAgingMode> PACKET_CODEC = PacketCodecs.STRING.xmap(CopperAgingMode::fromStringStatic, CopperAgingMode::asString);
 	public static final ImmutableList<@NotNull CopperAgingMode> VALUES = ImmutableList.copyOf(values());
 
 	private final String configString;

@@ -5,7 +5,6 @@ import fi.dy.masa.minihud.mixin.entity.IMixinEntity;
 import fi.dy.masa.minihud.mixin.world.IMixinWorld;
 import net.minecraft.client.MinecraftClient;
 import net.minecraft.entity.Entity;
-import net.minecraft.entity.Leashable;
 import net.minecraft.entity.decoration.LeashKnotEntity;
 import net.minecraft.nbt.NbtCompound;
 import net.minecraft.nbt.NbtElement;
@@ -43,7 +42,7 @@ public class EntityUtils
         if (nbt.contains("CustomName", NbtElement.STRING_TYPE))
         {
             String string = nbt.getString("CustomName");
-            entity.setCustomName(Text.Serialization.fromJson(string, entity.getRegistryManager()));
+            entity.setCustomName(Text.Serializer.fromJson(string));
         }
 
         entity.setCustomNameVisible(nbt.getBoolean("CustomNameVisible"));
@@ -63,9 +62,9 @@ public class EntityUtils
             }
         }
 
-        if (entity instanceof Leashable)
+        if (entity instanceof net.minecraft.entity.Entity)
         {
-            readLeashableEntityCustomData(entity, nbt);
+            readEntityEntityCustomData(entity, nbt);
         }
         else
         {
@@ -74,21 +73,14 @@ public class EntityUtils
     }
 
     @Deprecated(forRemoval = true)
-    private static void readLeashableEntityCustomData(Entity entity, NbtCompound nbt)
+    private static void readEntityEntityCustomData(Entity entity, NbtCompound nbt)
     {
         MinecraftClient mc = MinecraftClient.getInstance();
-        assert entity instanceof Leashable;
-        Leashable leashable = (Leashable) entity;
+        assert entity instanceof net.minecraft.entity.Entity;
+        Entity leashable = (Entity) entity;
         ((IMixinEntity) entity).minihud_readCustomDataFromNbt(nbt);
-        if (leashable.getLeashData() != null && leashable.getLeashData().unresolvedLeashData != null)
-        {
-            leashable.getLeashData().unresolvedLeashData
-                    .ifLeft(uuid ->
-                                    // We MUST use client-side world here.
-                                    leashable.attachLeash(((IMixinWorld) mc.world).minihud_getEntityLookup().get(uuid), false))
-                    .ifRight(pos ->
-                                     leashable.attachLeash(LeashKnotEntity.getOrCreate(mc.world, pos), false));
-        }
+        // 1.20.1 - leash data handling via NBT, no unresolvedLeashData
+        // if (entity instanceof net.minecraft.entity.Entity) { /* stub */ }
     }
 
     @SuppressWarnings("unchecked")

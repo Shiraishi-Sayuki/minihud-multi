@@ -58,7 +58,7 @@ public class InfoLineLookingAtEffects extends InfoLine
     @Override
     public List<Entry> parseNbt(@Nonnull World world, @Nonnull EntityType<?> entityType, @Nonnull NbtCompound nbt)
     {
-        Map<RegistryEntry<StatusEffect>, StatusEffectInstance> effects = NbtEntityUtils.getActiveStatusEffectsFromNbt(nbt);
+        Map<StatusEffect, StatusEffectInstance> effects = NbtEntityUtils.getActiveStatusEffectsFromNbt(nbt);
         List<Entry> list = new ArrayList<>();
 
         if (effects == null || effects.isEmpty())
@@ -66,17 +66,17 @@ public class InfoLineLookingAtEffects extends InfoLine
             return list;
         }
 
-        for (RegistryEntry<StatusEffect> effectType : effects.keySet())
+        for (StatusEffect effectType : effects.keySet())
         {
             StatusEffectInstance effect = effects.get(effectType);
 
             if (effect.isInfinite() || effect.getDuration() > 0)
             {
                 list.add(this.translate(EFFECTS_KEY,
-                                        effectType.value().getName().getString(),
+                                        effectType.getName().getString(),
                                         effect.getAmplifier() > 0 ? this.qt(EFFECTS_KEY+".amplifier", effect.getAmplifier() + 1) : "",
                                         effect.isInfinite() ? this.qt(EFFECTS_KEY+".infinite") :
-                                        MiscUtils.formatDuration((effect.getDuration() / 20) * 1000L),
+                                        String.valueOf((effect.getDuration() / 20) * 1000L),
                                         this.qt(REMAINING_KEY)
                 ));
             }
@@ -99,10 +99,10 @@ public class InfoLineLookingAtEffects extends InfoLine
                 if (effect.isInfinite() || effect.getDuration() > 0)
                 {
                     list.add(this.translate(EFFECTS_KEY,
-                                            effect.getEffectType().value().getName().getString(),
+                                            effect.getEffectType().getName().getString(),
                                             effect.getAmplifier() > 0 ? this.qt(EFFECTS_KEY + ".amplifier", effect.getAmplifier() + 1) : "",
                                             effect.isInfinite() ? this.qt(EFFECTS_KEY + ".infinite") :
-                                            MiscUtils.formatDuration((effect.getDuration() / 20) * 1000L),
+                                            String.valueOf((effect.getDuration() / 20) * 1000L),
                                             this.qt(REMAINING_KEY)
                     ));
                 }

@@ -2,19 +2,24 @@ package fi.dy.masa.minihud.hotkeys;
 
 import net.minecraft.client.MinecraftClient;
 import net.minecraft.entity.Entity;
+import fi.dy.masa.malilib.config.IConfigBoolean;
 import fi.dy.masa.malilib.gui.GuiBase;
-import fi.dy.masa.malilib.hotkeys.*;
-import fi.dy.masa.malilib.render.InventoryOverlayScreen;
+import fi.dy.masa.malilib.hotkeys.IHotkeyCallback;
+import fi.dy.masa.malilib.hotkeys.IKeybind;
+import fi.dy.masa.malilib.hotkeys.KeyAction;
+import fi.dy.masa.malilib.hotkeys.KeyCallbackAdjustable;
 import fi.dy.masa.minihud.config.Configs;
-import fi.dy.masa.minihud.config.RendererCallbacks;
 import fi.dy.masa.minihud.config.RendererToggle;
-import fi.dy.masa.minihud.data.EntitiesDataManager;
-import fi.dy.masa.minihud.data.HudDataManager;
 import fi.dy.masa.minihud.gui.GuiConfigs;
 import fi.dy.masa.minihud.gui.GuiConfigs.ConfigGuiTab;
 import fi.dy.masa.minihud.gui.GuiShapeEditor;
 import fi.dy.masa.minihud.gui.GuiShapeManager;
-import fi.dy.masa.minihud.renderer.*;
+import fi.dy.masa.minihud.renderer.OverlayRendererBeaconRange;
+import fi.dy.masa.minihud.renderer.OverlayRendererBiomeBorders;
+import fi.dy.masa.minihud.renderer.OverlayRendererConduitRange;
+import fi.dy.masa.minihud.renderer.OverlayRendererLightLevel;
+import fi.dy.masa.minihud.renderer.OverlayRendererSlimeChunks;
+import fi.dy.masa.minihud.renderer.OverlayRendererStructures;
 import fi.dy.masa.minihud.renderer.shapes.ShapeBase;
 import fi.dy.masa.minihud.renderer.shapes.ShapeManager;
 import fi.dy.masa.minihud.util.DataStorage;
@@ -27,66 +32,49 @@ public class KeyCallbacks
         Callbacks callback = new Callbacks();
 
         Configs.Generic.SET_DISTANCE_REFERENCE_POINT.getKeybind().setCallback(callback);
-        Configs.Generic.MOVE_SHAPE_TO_PLAYER.getKeybind().setCallback(callback);
         Configs.Generic.OPEN_CONFIG_GUI.getKeybind().setCallback(callback);
         Configs.Generic.SHAPE_EDITOR.getKeybind().setCallback(callback);
-        Configs.Generic.INVENTORY_PREVIEW_TOGGLE_SCREEN.getKeybind().setCallback(callback);
-
-        Configs.Generic.ENTITY_DATA_SYNC.setValueChangeCallback((config) -> EntitiesDataManager.getInstance().onEntityDataSyncToggled(config));
-        Configs.Generic.HUD_DATA_SYNC.setValueChangeCallback((config) -> HudDataManager.getInstance().onHudDataSyncToggled(config));
 
         Configs.Colors.BEACON_RANGE_LVL1_OVERLAY_COLOR.setValueChangeCallback((config) -> updateBeaconOverlay());
         Configs.Colors.BEACON_RANGE_LVL2_OVERLAY_COLOR.setValueChangeCallback((config) -> updateBeaconOverlay());
         Configs.Colors.BEACON_RANGE_LVL3_OVERLAY_COLOR.setValueChangeCallback((config) -> updateBeaconOverlay());
         Configs.Colors.BEACON_RANGE_LVL4_OVERLAY_COLOR.setValueChangeCallback((config) -> updateBeaconOverlay());
-        Configs.Colors.CONDUIT_RANGE_OVERLAY_COLOR.setValueChangeCallback(cfg -> OverlayRendererBeaconRange.INSTANCE.setNeedsUpdate());
+        Configs.Colors.CONDUIT_RANGE_OVERLAY_COLOR.setValueChangeCallback((config) -> updateConduitOverlay());
 
-        Configs.Generic.LIGHT_LEVEL_RANGE.setValueChangeCallback((config) -> OverlayRendererLightLevel.INSTANCE.setNeedsUpdate());
+        Configs.Generic.LIGHT_LEVEL_RANGE.setValueChangeCallback((config) -> OverlayRendererLightLevel.setNeedsUpdate());
         Configs.Generic.LIGHT_LEVEL_RENDER_THROUGH.setValueChangeCallback((config) -> OverlayRendererLightLevel.INSTANCE.setRenderThrough(config.getBooleanValue()));
         Configs.Generic.STRUCTURES_RENDER_THROUGH.setValueChangeCallback((config) -> OverlayRendererStructures.INSTANCE.setRenderThrough(config.getBooleanValue()));
 
-        Configs.Generic.SPAWN_PLAYER_OUTER_OVERLAY_ENABLED.setValueChangeCallback((config) -> OverlayRendererSpawnChunks.INSTANCE_PLAYER.setNeedsUpdate());
-        Configs.Generic.SPAWN_PLAYER_REDSTONE_OVERLAY_ENABLED.setValueChangeCallback((config) -> OverlayRendererSpawnChunks.INSTANCE_PLAYER.setNeedsUpdate());
-        Configs.Generic.SPAWN_REAL_OUTER_OVERLAY_ENABLED.setValueChangeCallback((config) -> OverlayRendererSpawnChunks.INSTANCE_REAL.setNeedsUpdate());
-        Configs.Generic.SPAWN_REAL_REDSTONE_OVERLAY_ENABLED.setValueChangeCallback((config) -> OverlayRendererSpawnChunks.INSTANCE_REAL.setNeedsUpdate());
+        RendererToggle.OVERLAY_SLIME_CHUNKS_OVERLAY.getKeybind().setCallback(new KeyCallbackAdjustable(RendererToggle.OVERLAY_SLIME_CHUNKS_OVERLAY, new KeyCallbackToggleRenderer(RendererToggle.OVERLAY_SLIME_CHUNKS_OVERLAY)));
 
-        Configs.Colors.SPAWN_PLAYER_ENTITY_OVERLAY_COLOR.setValueChangeCallback((config) -> OverlayRendererSpawnChunks.INSTANCE_PLAYER.setNeedsUpdate());
-        Configs.Colors.SPAWN_PLAYER_REDSTONE_OVERLAY_COLOR.setValueChangeCallback((config) -> OverlayRendererSpawnChunks.INSTANCE_PLAYER.setNeedsUpdate());
-        Configs.Colors.SPAWN_PLAYER_LAZY_OVERLAY_COLOR.setValueChangeCallback((config) -> OverlayRendererSpawnChunks.INSTANCE_PLAYER.setNeedsUpdate());
-        Configs.Colors.SPAWN_PLAYER_OUTER_OVERLAY_COLOR.setValueChangeCallback((config) -> OverlayRendererSpawnChunks.INSTANCE_PLAYER.setNeedsUpdate());
+        RendererToggle.OVERLAY_BEACON_RANGE.setValueChangeCallback((config) -> updateBeaconOverlay());
+        RendererToggle.OVERLAY_BIOME_BORDER.setValueChangeCallback((config) -> OverlayRendererBiomeBorders.INSTANCE.setNeedsUpdate());
+        RendererToggle.OVERLAY_SLIME_CHUNKS_OVERLAY.setValueChangeCallback(KeyCallbacks::updateSlimeChunkOverlay);
+        RendererToggle.OVERLAY_CONDUIT_RANGE.setValueChangeCallback((config) -> updateConduitOverlay());
 
-        Configs.Colors.SPAWN_REAL_ENTITY_OVERLAY_COLOR.setValueChangeCallback((config) -> OverlayRendererSpawnChunks.INSTANCE_REAL.setNeedsUpdate());
-        Configs.Colors.SPAWN_REAL_REDSTONE_OVERLAY_COLOR.setValueChangeCallback((config) -> OverlayRendererSpawnChunks.INSTANCE_REAL.setNeedsUpdate());
-        Configs.Colors.SPAWN_REAL_LAZY_OVERLAY_COLOR.setValueChangeCallback((config) -> OverlayRendererSpawnChunks.INSTANCE_REAL.setNeedsUpdate());
-        Configs.Colors.SPAWN_REAL_OUTER_OVERLAY_COLOR.setValueChangeCallback((config) -> OverlayRendererSpawnChunks.INSTANCE_REAL.setNeedsUpdate());
-
-        RendererToggle.OVERLAY_SLIME_CHUNKS_OVERLAY.getKeybind().setCallback(new KeyCallbackAdjustable(RendererToggle.OVERLAY_SLIME_CHUNKS_OVERLAY, new KeyCallbackToggleBooleanConfigWithMessage(RendererToggle.OVERLAY_SLIME_CHUNKS_OVERLAY)));
-
-        RendererToggle.OVERLAY_BEACON_RANGE.setValueChangeCallback(RendererCallbacks::onBeaconRangeToggled);
-        RendererToggle.OVERLAY_BIOME_BORDER.setValueChangeCallback(RendererCallbacks::onBiomeBorderToggled);
-        RendererToggle.OVERLAY_CONDUIT_RANGE.setValueChangeCallback(RendererCallbacks::onConduitRangeToggled);
-        RendererToggle.OVERLAY_LIGHT_LEVEL.setValueChangeCallback(RendererCallbacks::onLightLevelToggled);
-        RendererToggle.OVERLAY_RANDOM_TICKS_FIXED.setValueChangeCallback(RendererCallbacks::onRandomTicksFixedToggled);
-        RendererToggle.OVERLAY_RANDOM_TICKS_PLAYER.setValueChangeCallback(RendererCallbacks::onRandomTicksPlayerToggled);
-        RendererToggle.OVERLAY_REGION_FILE.setValueChangeCallback(RendererCallbacks::onRegionFileToggled);
-        RendererToggle.OVERLAY_SLIME_CHUNKS_OVERLAY.setValueChangeCallback(RendererCallbacks::onSlimeChunksToggled);
-        RendererToggle.OVERLAY_SPAWN_CHUNK_OVERLAY_PLAYER.setValueChangeCallback(RendererCallbacks::onSpawnChunksPlayerToggled);
-        RendererToggle.OVERLAY_SPAWN_CHUNK_OVERLAY_REAL.setValueChangeCallback(RendererCallbacks::onSpawnChunksRealToggled);
-        RendererToggle.OVERLAY_STRUCTURE_MAIN_TOGGLE.setValueChangeCallback(RendererCallbacks::onStructuresToggled);
-
-        RendererToggle.DEBUG_DATA_MAIN_TOGGLE.setValueChangeCallback(RendererCallbacks::onDebugServiceToggled);
         RendererToggle.DEBUG_CHUNK_BORDER.setValueChangeCallback(DebugInfoUtils::toggleDebugRenderer);
         RendererToggle.DEBUG_CHUNK_INFO.setValueChangeCallback(DebugInfoUtils::toggleDebugRenderer);
         RendererToggle.DEBUG_CHUNK_OCCLUSION.setValueChangeCallback(DebugInfoUtils::toggleDebugRenderer);
         RendererToggle.DEBUG_NEIGHBOR_UPDATES.setValueChangeCallback(DebugInfoUtils::toggleDebugRenderer);
-        //RendererToggle.DEBUG_PATH_FINDING.setValueChangeCallback(DebugInfoUtils::toggleDebugRenderer);
-        // TODO 1.21.2+
-        //RendererToggle.DEBUG_OCTREEE.setValueChangeCallback(DebugInfoUtils::toggleDebugRenderer);
+        RendererToggle.DEBUG_PATH_FINDING.setValueChangeCallback(DebugInfoUtils::toggleDebugRenderer);
+    }
+
+    private static void updateSlimeChunkOverlay(IConfigBoolean config)
+    {
+        if (config.getBooleanValue())
+        {
+            OverlayRendererSlimeChunks.onEnabled();
+        }
     }
 
     private static void updateBeaconOverlay()
     {
         OverlayRendererBeaconRange.INSTANCE.setNeedsUpdate();
+    }
+
+    private static void updateConduitOverlay()
+    {
+        OverlayRendererConduitRange.INSTANCE.setNeedsUpdate();
     }
 
     public static class Callbacks implements IHotkeyCallback
@@ -105,16 +93,6 @@ public class KeyCallbacks
             {
                 GuiBase.openGui(new GuiConfigs());
             }
-            else if (key == Configs.Generic.MOVE_SHAPE_TO_PLAYER.getKeybind())
-            {
-                Entity entity = mc.getCameraEntity() != null ? mc.getCameraEntity() : mc.player;
-                ShapeBase shape = ShapeManager.INSTANCE.getSelectedShape();
-
-                if (shape != null)
-                {
-                    shape.moveToPosition(entity.getPos());
-                }
-            }
             else if (key == Configs.Generic.SET_DISTANCE_REFERENCE_POINT.getKeybind())
             {
                 Entity entity = mc.getCameraEntity() != null ? mc.getCameraEntity() : mc.player;
@@ -132,32 +110,6 @@ public class KeyCallbacks
                 {
                     GuiConfigs.tab = ConfigGuiTab.SHAPES;
                     GuiBase.openGui(new GuiShapeManager());
-                }
-            }
-            else if (key == Configs.Generic.INVENTORY_PREVIEW_TOGGLE_SCREEN.getKeybind())
-            {
-                if (mc.currentScreen instanceof InventoryOverlayScreen)
-                {
-                    mc.setScreen(null);
-                }
-                else if (Configs.Generic.INVENTORY_PREVIEW_ENABLED.getBooleanValue() &&
-                        Configs.Generic.INVENTORY_PREVIEW.getKeybind().isKeybindHeld())
-                {
-                    //RayTraceUtils.InventoryPreviewData inventory = RayTraceUtils.getTargetInventory(mc);
-                    /*
-                    InventoryOverlay.Context inventory = RayTraceUtils.getTargetInventory(mc, false);
-
-                    if (inventory != null)
-                    {
-                        mc.setScreen(new InventoryOverlayScreen(inventory));
-                    }
-                     */
-
-                    InventoryOverlayHandler.getInstance().refreshInventoryOverlay(mc, Configs.Generic.SHULKER_DISPLAY_BACKGROUND_COLOR.getBooleanValue());
-                }
-                else
-                {
-                    return false;
                 }
             }
 

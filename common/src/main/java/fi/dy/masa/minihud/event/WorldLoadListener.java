@@ -1,38 +1,24 @@
 package fi.dy.masa.minihud.event;
 
-import java.nio.file.Files;
-import java.nio.file.Path;
+import java.io.File;
 import javax.annotation.Nullable;
 import com.google.gson.JsonElement;
 import com.google.gson.JsonObject;
-
 import net.minecraft.client.MinecraftClient;
 import net.minecraft.client.world.ClientWorld;
-
 import fi.dy.masa.malilib.interfaces.IWorldLoadListener;
 import fi.dy.masa.malilib.util.FileUtils;
 import fi.dy.masa.malilib.util.JsonUtils;
 import fi.dy.masa.malilib.util.StringUtils;
 import fi.dy.masa.minihud.MiniHUD;
 import fi.dy.masa.minihud.Reference;
-import fi.dy.masa.minihud.data.DebugDataManager;
-import fi.dy.masa.minihud.data.EntitiesDataManager;
-import fi.dy.masa.minihud.data.HudDataManager;
 import fi.dy.masa.minihud.renderer.OverlayRenderer;
-import fi.dy.masa.minihud.renderer.OverlayRendererVillagerInfo;
 import fi.dy.masa.minihud.renderer.RenderContainer;
 import fi.dy.masa.minihud.renderer.shapes.ShapeManager;
 import fi.dy.masa.minihud.util.DataStorage;
-import net.minecraft.registry.DynamicRegistryManager;
 
 public class WorldLoadListener implements IWorldLoadListener
 {
-    @Override
-    public void onWorldLoadImmutable(DynamicRegistryManager.Immutable immutable)
-    {
-        DataStorage.getInstance().setWorldRegistryManager(immutable);
-    }
-
     @Override
     public void onWorldLoadPre(@Nullable ClientWorld worldBefore, @Nullable ClientWorld worldAfter, MinecraftClient mc)
     {
@@ -47,13 +33,6 @@ public class WorldLoadListener implements IWorldLoadListener
                 this.writeDataGlobal();
             }
         }
-        if (worldAfter != null)
-        {
-            DataStorage.getInstance().onWorldPre();
-            HudDataManager.getInstance().onWorldPre();
-            EntitiesDataManager.getInstance().onWorldPre();
-            DebugDataManager.getInstance().onWorldPre();
-        }
     }
 
     @Override
@@ -61,11 +40,6 @@ public class WorldLoadListener implements IWorldLoadListener
     {
         // Clear the cached data
         DataStorage.getInstance().reset(worldAfter == null);
-        HudDataManager.getInstance().reset(worldAfter == null);
-        EntitiesDataManager.getInstance().reset(worldAfter == null);
-        OverlayRendererVillagerInfo.INSTANCE.reset(worldAfter == null);
-        DebugDataManager.getInstance().reset(worldAfter == null);
-        OverlayRenderer.reset();
 
         // Logging in to a world or changing dimensions or respawning
         if (worldAfter != null)
@@ -79,40 +53,35 @@ public class WorldLoadListener implements IWorldLoadListener
             this.readStoredDataPerDimension();
             OverlayRenderer.resetRenderTimeout();
             DataStorage.getInstance().onWorldJoin();
-//            DataStorage.getInstance().setWorldRegistryManager(worldAfter.getRegistryManager());
-            HudDataManager.getInstance().onWorldJoin();
-            EntitiesDataManager.getInstance().onWorldJoin();
-            DebugDataManager.getInstance().onWorldJoin();
         }
     }
 
     private void writeDataPerDimension()
     {
-        Path file = getCurrentStorageFile(false);
+        File file = getCurrentStorageFile(false);
         JsonObject root = new JsonObject();
 
         root.add("data_storage", DataStorage.getInstance().toJson());
         root.add("shapes", ShapeManager.INSTANCE.toJson());
 
-        JsonUtils.writeJsonToFileAsPath(root, file);
+        JsonUtils.writeJsonToFile(root, file);
     }
 
     private void writeDataGlobal()
     {
-        Path file = getCurrentStorageFile(true);
+        File file = getCurrentStorageFile(true);
         JsonObject root = new JsonObject();
 
         root.add("renderers", RenderContainer.INSTANCE.toJson());
-        root.add("hud_data", HudDataManager.getInstance().toJson());
 
-        JsonUtils.writeJsonToFileAsPath(root, file);
+        JsonUtils.writeJsonToFile(root, file);
     }
 
     private void readStoredDataPerDimension()
     {
         // Per-dimension file
-        Path file = getCurrentStorageFile(false);
-        JsonElement element = JsonUtils.parseJsonFileAsPath(file);
+        File file = getCurrentStorageFile(false);
+        JsonElement element = JsonUtils.parseJsonFile(file);
 
         if (element != null && element.isJsonObject())
         {
@@ -127,20 +96,14 @@ public class WorldLoadListener implements IWorldLoadListener
             {
                 DataStorage.getInstance().fromJson(JsonUtils.getNestedObject(root, "data_storage", false));
             }
-
-            // Backwards compat
-            if (JsonUtils.hasObject(root, "hud_data"))
-            {
-                HudDataManager.getInstance().fromJson(JsonUtils.getNestedObject(root, "hud_data", false));
-            }
         }
     }
 
     private void readStoredDataGlobal()
     {
         // Global file
-        Path file = getCurrentStorageFile(true);
-        JsonElement element = JsonUtils.parseJsonFileAsPath(file);
+        File file = getCurrentStorageFile(true);
+        JsonElement element = JsonUtils.parseJsonFile(file);
 
         if (element != null && element.isJsonObject())
         {
@@ -150,34 +113,23 @@ public class WorldLoadListener implements IWorldLoadListener
             {
                 RenderContainer.INSTANCE.fromJson(JsonUtils.getNestedObject(root, "renderers", false));
             }
-
-            if (JsonUtils.hasObject(root, "hud_data"))
-            {
-                HudDataManager.getInstance().fromJson(JsonUtils.getNestedObject(root, "hud_data", false));
-            }
         }
     }
 
-    public static Path getCurrentConfigDirectory()
+    public static File getCurrentConfigDirectory()
     {
-        return FileUtils.getConfigDirectoryAsPath().resolve(Reference.MOD_ID);
+        return new File(FileUtils.getConfigDirectory(), Reference.MOD_ID);
     }
 
-    private static Path getCurrentStorageFile(boolean globalData)
+    private static File getCurrentStorageFile(boolean globalData)
     {
-        Path saveDir = getCurrentConfigDirectory();
+        File dir = getCurrentConfigDirectory();
 
-        if (!Files.exists(saveDir))
+        if (dir.exists() == false && dir.mkdirs() == false)
         {
-            FileUtils.createDirectoriesIfMissing(saveDir);
-            //MiniHUD.debugLog("getCurrentStorageFile(): Creating directory '{}'.", saveDir.toAbsolutePath());
+            MiniHUD.LOGGER.warn("Failed to create the config directory '{}'", dir.getAbsolutePath());
         }
 
-        if (!Files.isDirectory(saveDir))
-        {
-            MiniHUD.LOGGER.warn("getCurrentStorageFile(): Failed to create the config directory '{}'", saveDir.toAbsolutePath());
-        }
-
-        return saveDir.resolve(StringUtils.getStorageFileName(globalData, "", ".json", Reference.MOD_ID + "_default"));
+        return new File(dir, StringUtils.getStorageFileName(globalData, "", ".json", Reference.MOD_ID + "_default"));
     }
 }

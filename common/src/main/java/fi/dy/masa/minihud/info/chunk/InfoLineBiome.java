@@ -52,7 +52,7 @@ public class InfoLineBiome extends InfoLine
 
 		        if (biomeName.equals(translationKey))
 		        {
-			        biomeName = StringUtils.prettifyRawTranslationPath(id.getPath());
+			        biomeName = id.getPath();
 		        }
 
 		        list.add(this.translate(BIOME_KEY, biomeName));

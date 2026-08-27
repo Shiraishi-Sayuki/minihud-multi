@@ -8,23 +8,18 @@ import com.google.gson.JsonPrimitive;
 import it.unimi.dsi.fastutil.longs.Long2ByteOpenHashMap;
 import it.unimi.dsi.fastutil.longs.Long2ObjectOpenHashMap;
 import it.unimi.dsi.fastutil.longs.LongOpenHashSet;
-
 import net.minecraft.client.MinecraftClient;
-import net.minecraft.client.gl.VertexBuffer;
-import net.minecraft.client.render.*;
+import net.minecraft.client.render.VertexFormats;
 import net.minecraft.entity.Entity;
 import net.minecraft.util.math.BlockPos;
 import net.minecraft.util.math.Direction;
 import net.minecraft.util.math.MathHelper;
 import net.minecraft.util.math.Vec3d;
-import net.minecraft.util.profiler.Profiler;
-
 import fi.dy.masa.malilib.util.JsonUtils;
 import fi.dy.masa.malilib.util.PositionUtils;
 import fi.dy.masa.malilib.util.StringUtils;
-import fi.dy.masa.minihud.MiniHUD;
 import fi.dy.masa.minihud.config.Configs;
-import fi.dy.masa.minihud.renderer.RenderObjectVbo;
+import fi.dy.masa.minihud.renderer.RenderObjectBase;
 import fi.dy.masa.minihud.renderer.RenderUtils;
 import fi.dy.masa.minihud.util.ShapeRenderType;
 import fi.dy.masa.minihud.util.shape.SphereUtils;
@@ -32,121 +27,17 @@ import fi.dy.masa.minihud.util.shape.SphereUtils;
 public class ShapeCircle extends ShapeCircleBase
 {
     protected int height = 1;
-    private boolean hasData;
 
     public ShapeCircle()
     {
         super(ShapeType.CIRCLE, Configs.Colors.SHAPE_CIRCLE.getColor(), 16);
-        this.hasData = false;
-        this.useCulling = false;
     }
 
     @Override
-    public void update(Vec3d cameraPos, Entity entity, MinecraftClient mc, Profiler profiler)
+    public void update(Vec3d cameraPos, Entity entity, MinecraftClient mc)
     {
-        this.hasData = true;
-        this.render(cameraPos, mc, profiler);
+        this.renderCircleShape(cameraPos);
         this.needsUpdate = false;
-    }
-
-    @Override
-    public boolean hasData()
-    {
-        return this.hasData;
-    }
-
-    @Override
-    public void render(Vec3d cameraPos, MinecraftClient mc, Profiler profiler)
-    {
-        this.allocateBuffers(this.renderLines);
-        this.renderThrough = this.renderThroughShape;
-        this.renderQuads(cameraPos, mc, profiler);
-
-        if (this.renderLines)
-        {
-            this.renderOutlines(cameraPos, mc, profiler);
-        }
-    }
-
-    private void renderQuads(Vec3d cameraPos, MinecraftClient mc, Profiler profiler)
-    {
-        if (mc.world == null || mc.player == null)
-        {
-            return;
-        }
-
-        profiler.push("circle_quads");
-        RenderObjectVbo ctx = this.renderObjects.getFirst();
-        BufferBuilder builder = ctx.start(
-		        () -> "minihud:circle/quads",
-		        VertexFormat.DrawMode.QUADS, VertexFormats.POSITION_COLOR, GameRenderer::getPositionColorProgram, VertexBuffer.Usage.STATIC
-        );
-
-        this.renderCircleShapeQuads(cameraPos, builder);
-
-        try
-        {
-            BuiltBuffer meshData = builder.endNullable();
-
-            if (meshData != null)
-            {
-                ctx.upload(meshData);
-
-                if (this.shouldResort)
-                {
-                    ctx.startResorting(meshData, ctx.createVertexSorter(cameraPos));
-                }
-
-                meshData.close();
-            }
-        }
-        catch (Exception err)
-        {
-            MiniHUD.LOGGER.error("ShapeCircle#renderQuads(): Exception; {}", err.getMessage());
-        }
-
-        profiler.pop();
-    }
-
-    private void renderOutlines(Vec3d cameraPos, MinecraftClient mc, Profiler profiler)
-    {
-        if (mc.world == null || mc.player == null || !this.renderLines)
-        {
-            return;
-        }
-
-        profiler.push("circle_outlines");
-        RenderObjectVbo ctx = this.renderObjects.get(1);
-        BufferBuilder builder = ctx.start(
-                () -> "minihud:circle/outlines",
-                VertexFormat.DrawMode.DEBUG_LINES, VertexFormats.POSITION_COLOR, GameRenderer::getPositionColorProgram, VertexBuffer.Usage.STATIC
-        );
-
-        this.renderCircleShapeOutlines(cameraPos, builder);
-
-        try
-        {
-            BuiltBuffer meshData = builder.endNullable();
-
-            if (meshData != null)
-            {
-                ctx.upload(meshData);
-                meshData.close();
-            }
-        }
-        catch (Exception err)
-        {
-            MiniHUD.LOGGER.error("ShapeCircle#renderOutlines(): Exception; {}", err.getMessage());
-        }
-
-        profiler.pop();
-    }
-
-    @Override
-    public void reset()
-    {
-        super.reset();
-        this.hasData = false;
     }
 
     public int getHeight()
@@ -160,7 +51,7 @@ public class ShapeCircle extends ShapeCircleBase
         this.setNeedsUpdate();
     }
 
-    protected void renderCircleShapeQuads(Vec3d cameraPos, BufferBuilder builder)
+    protected void renderCircleShape(Vec3d cameraPos)
     {
         LongOpenHashSet positions = new LongOpenHashSet();
         Consumer<BlockPos.Mutable> positionConsumer = this.getPositionCollector(positions);
@@ -169,6 +60,9 @@ public class ShapeCircle extends ShapeCircleBase
         Vec3d effectiveCenter = this.getEffectiveCenter();
         Direction.Axis axis = this.mainAxis.getAxis();
         double expand = 0;
+
+        RenderObjectBase renderQuads = this.renderObjects.get(0);
+        BUFFER_1.begin(renderQuads.getGlMode(), VertexFormats.POSITION_COLOR);
 
         if (this.getCombineQuads())
         {
@@ -187,7 +81,7 @@ public class ShapeCircle extends ShapeCircleBase
                     SphereUtils.buildSphereShellToStrips(positions, axis, test, this.renderType, this.layerRange);
             List<SideQuad> quads = buildStripsToQuadsForCircle(strips, this.mainAxis, this.height);
 
-            RenderUtils.renderQuads(quads, this.color, expand, cameraPos, builder);
+            RenderUtils.renderQuads(quads, this.color, expand, cameraPos, BUFFER_1);
         }
         else
         {
@@ -214,68 +108,10 @@ public class ShapeCircle extends ShapeCircleBase
 
             Direction[] sides = this.getSides();
             RenderUtils.renderCircleBlockPositions(positions, sides, test, this.renderType, this.layerRange,
-                                                   this.color, expand, cameraPos, builder);
+                                                   this.color, expand, cameraPos, BUFFER_1);
         }
-    }
 
-    protected void renderCircleShapeOutlines(Vec3d cameraPos,
-//                                             BufferBuilder builder, MatrixStack.Entry e)
-                                             BufferBuilder builder)
-    {
-        LongOpenHashSet positions = new LongOpenHashSet();
-        Consumer<BlockPos.Mutable> positionConsumer = this.getPositionCollector(positions);
-        SphereUtils.RingPositionTest test = this::isPositionOnOrInsideRing;
-        BlockPos.Mutable mutablePos = new BlockPos.Mutable();
-        Vec3d effectiveCenter = this.getEffectiveCenter();
-        Direction.Axis axis = this.mainAxis.getAxis();
-        double expand = 0;
-
-        if (this.getCombineQuads())
-        {
-            mutablePos.set(effectiveCenter.x, effectiveCenter.y, effectiveCenter.z);
-
-            if (axis == Direction.Axis.Y)
-            {
-                SphereUtils.addPositionsOnHorizontalBlockRing(positionConsumer, mutablePos, test);
-            }
-            else
-            {
-                SphereUtils.addPositionsOnVerticalBlockRing(positionConsumer, mutablePos, this.mainAxis, test);
-            }
-
-            Long2ObjectOpenHashMap<SideQuad> strips =
-                    SphereUtils.buildSphereShellToStrips(positions, axis, test, this.renderType, this.layerRange);
-            List<SideQuad> quads = buildStripsToQuadsForCircle(strips, this.mainAxis, this.height);
-
-            RenderUtils.renderQuadLines(quads, this.colorLines, expand, cameraPos, builder);
-        }
-        else
-        {
-            BlockPos posCenter = BlockPos.ofFloored(effectiveCenter);
-            int offX = this.mainAxis.getOffsetX();
-            int offY = this.mainAxis.getOffsetY();
-            int offZ = this.mainAxis.getOffsetZ();
-
-            for (int i = 0; i < this.height; ++i)
-            {
-                mutablePos.set(posCenter.getX() + offX * i,
-                               posCenter.getY() + offY * i,
-                               posCenter.getZ() + offZ * i);
-
-                if (axis == Direction.Axis.Y)
-                {
-                    SphereUtils.addPositionsOnHorizontalBlockRing(positionConsumer, mutablePos, test);
-                }
-                else
-                {
-                    SphereUtils.addPositionsOnVerticalBlockRing(positionConsumer, mutablePos, this.mainAxis, test);
-                }
-            }
-
-            Direction[] sides = this.getSides();
-            RenderUtils.renderCircleBlockOutlines(positions, sides, test, this.renderType, this.layerRange,
-                                                  this.colorLines, expand, cameraPos, builder);
-        }
+        renderQuads.uploadData(BUFFER_1);
     }
 
     protected Direction[] getSides()
@@ -301,7 +137,18 @@ public class ShapeCircle extends ShapeCircleBase
         double distSq = effectiveCenter.squaredDistanceTo(x, y, z);
         double diff = radiusSq - distSq;
 
-        return diff >= 0;
+        if (diff > 0)
+        {
+            return true;
+        }
+
+        double xAdj = x + outSide.getOffsetX();
+        double yAdj = y + outSide.getOffsetY();
+        double zAdj = z + outSide.getOffsetZ();
+        double distAdjSq = effectiveCenter.squaredDistanceTo(xAdj, yAdj, zAdj);
+        double diffAdj = radiusSq - distAdjSq;
+
+        return diffAdj > 0 && Math.abs(diff) < Math.abs(diffAdj);
     }
 
     public static List<SideQuad> buildStripsToQuadsForCircle(Long2ObjectOpenHashMap<SideQuad> strips,

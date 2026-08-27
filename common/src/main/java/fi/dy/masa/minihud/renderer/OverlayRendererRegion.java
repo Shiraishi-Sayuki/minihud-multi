@@ -1,48 +1,27 @@
 package fi.dy.masa.minihud.renderer;
 
-import java.util.ArrayList;
-import java.util.List;
-
 import net.minecraft.client.MinecraftClient;
-import net.minecraft.client.gl.VertexBuffer;
-import net.minecraft.client.render.*;
+import net.minecraft.client.render.VertexFormats;
 import net.minecraft.entity.Entity;
 import net.minecraft.util.math.BlockPos;
-import net.minecraft.util.math.Box;
 import net.minecraft.util.math.MathHelper;
 import net.minecraft.util.math.Vec3d;
-import net.minecraft.util.profiler.Profiler;
 import net.minecraft.world.World;
-
 import fi.dy.masa.malilib.util.Color4f;
-import fi.dy.masa.minihud.MiniHUD;
 import fi.dy.masa.minihud.config.Configs;
 import fi.dy.masa.minihud.config.RendererToggle;
 
 public class OverlayRendererRegion extends OverlayRendererBase
 {
-    public static final OverlayRendererRegion INSTANCE = new OverlayRendererRegion();
-    protected boolean needsUpdate = true;
-    private List<Box> boxes;
-    private boolean hasData;
+    protected static boolean needsUpdate = true;
 
-    protected OverlayRendererRegion()
+    public static void setNeedsUpdate()
     {
-        this.boxes = new ArrayList<>();
-        this.hasData = false;
-        this.useCulling = false;
-        this.renderThrough = false;
+        needsUpdate = true;
     }
 
-    public void setNeedsUpdate()
+    public OverlayRendererRegion()
     {
-        this.needsUpdate = true;
-    }
-
-    @Override
-    public String getName()
-    {
-        return "Region";
     }
 
     @Override
@@ -54,7 +33,7 @@ public class OverlayRendererRegion extends OverlayRendererBase
     @Override
     public boolean needsUpdate(Entity entity, MinecraftClient mc)
     {
-        if (this.needsUpdate)
+        if (needsUpdate)
         {
             return true;
         }
@@ -68,20 +47,13 @@ public class OverlayRendererRegion extends OverlayRendererBase
     }
 
     @Override
-    public void update(Vec3d cameraPos, Entity entity, MinecraftClient mc, Profiler profiler)
+    public void update(Vec3d cameraPos, Entity entity, MinecraftClient mc)
     {
-        this.calculateRegions(entity);
+        RenderObjectBase renderQuads = this.renderObjects.get(0);
+        RenderObjectBase renderLines = this.renderObjects.get(1);
+        BUFFER_1.begin(renderQuads.getGlMode(), VertexFormats.POSITION_COLOR);
+        BUFFER_2.begin(renderLines.getGlMode(), VertexFormats.POSITION_COLOR);
 
-        if (this.hasData())
-        {
-            this.render(cameraPos, mc, profiler);
-        }
-
-        this.needsUpdate = false;
-    }
-
-    private void calculateRegions(Entity entity)
-    {
         World world = entity.getEntityWorld();
         int minY = world != null ? world.getBottomY() : -64;
         int maxY = world != null ? world.getTopY() : 320;
@@ -89,111 +61,13 @@ public class OverlayRendererRegion extends OverlayRendererBase
         int rz = MathHelper.floor(entity.getZ()) & ~0x1FF;
         BlockPos pos1 = new BlockPos(rx,       minY, rz      );
         BlockPos pos2 = new BlockPos(rx + 511, maxY, rz + 511);
-        this.boxes = RenderUtils.calculateBoxes(pos1, pos2);
-        this.hasData = true;
-    }
-
-    @Override
-    public boolean hasData()
-    {
-        return this.hasData && !this.boxes.isEmpty();
-    }
-
-    @Override
-    public void render(Vec3d cameraPos, MinecraftClient mc, Profiler profiler)
-    {
-        this.allocateBuffers();
-        this.renderQuads(cameraPos, mc, profiler);
-        this.renderOutlines(cameraPos, mc, profiler);
-    }
-
-    private void renderQuads(Vec3d cameraPos, MinecraftClient mc, Profiler profiler)
-    {
-        if (mc.world == null || mc.player == null)
-        {
-            return;
-        }
-
-        profiler.push("region_quads");
         Color4f color = Configs.Colors.REGION_OVERLAY_COLOR.getColor();
-        RenderObjectVbo ctx = this.renderObjects.getFirst();
-        BufferBuilder builder = ctx.start(
-		        () -> "minihud:region/quads",
-		        VertexFormat.DrawMode.QUADS, VertexFormats.POSITION_COLOR, GameRenderer::getPositionColorProgram, VertexBuffer.Usage.STATIC
-        );
 
-        for (Box box : this.boxes)
-        {
-            RenderUtils.renderWallQuads(box, cameraPos, color, builder);
-        }
+        RenderUtils.renderWallsWithLines(pos1, pos2, cameraPos, 16, 16, true, color, BUFFER_1, BUFFER_2);
 
-        try
-        {
-            BuiltBuffer meshData = builder.endNullable();
+        renderQuads.uploadData(BUFFER_1);
+        renderLines.uploadData(BUFFER_2);
 
-            if (meshData != null)
-            {
-                ctx.upload(meshData);
-
-                if (this.shouldResort)
-                {
-                    ctx.startResorting(meshData, ctx.createVertexSorter(cameraPos));
-                }
-
-                meshData.close();
-            }
-        }
-        catch (Exception err)
-        {
-            MiniHUD.LOGGER.error("OverlayRendererRegion#renderQuads(): Exception; {}", err.getMessage());
-        }
-
-        profiler.pop();
-    }
-
-    private void renderOutlines(Vec3d cameraPos, MinecraftClient mc, Profiler profiler)
-    {
-        if (mc.world == null || mc.player == null)
-        {
-            return;
-        }
-
-        profiler.push("region_outlines");
-        Color4f color = Configs.Colors.REGION_OVERLAY_COLOR.getColor();
-        RenderObjectVbo ctx = this.renderObjects.get(1);
-        BufferBuilder builder = ctx.start(
-                () -> "minihud:region/outlines",
-                VertexFormat.DrawMode.DEBUG_LINES, VertexFormats.POSITION_COLOR, GameRenderer::getPositionColorProgram, VertexBuffer.Usage.STATIC
-        );
-
-        for (Box box : this.boxes)
-        {
-            RenderUtils.renderWallOutlines(box, 16, 16, true, cameraPos, color, builder);
-        }
-
-        try
-        {
-            BuiltBuffer meshData = builder.endNullable();
-
-            if (meshData != null)
-            {
-                ctx.upload(meshData);
-                meshData.close();
-            }
-        }
-        catch (Exception err)
-        {
-            MiniHUD.LOGGER.error("OverlayRendererRegion#renderOutlines(): Exception; {}", err.getMessage());
-        }
-
-        profiler.pop();
-    }
-
-    @Override
-    public void reset()
-    {
-        super.reset();
-        this.boxes.clear();
-        this.hasData = false;
+        needsUpdate = false;
     }
 }

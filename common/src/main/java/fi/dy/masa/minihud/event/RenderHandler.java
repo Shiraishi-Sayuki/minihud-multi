@@ -1,62 +1,72 @@
 package fi.dy.masa.minihud.event;
 
-import java.util.*;
-import java.util.function.Supplier;
-import javax.annotation.Nonnull;
+import java.text.SimpleDateFormat;
+import java.util.ArrayList;
+import java.util.Collections;
+import java.util.Date;
+import java.util.HashMap;
+import java.util.HashSet;
+import java.util.List;
+import java.util.Map;
+import java.util.Set;
+import java.util.concurrent.CompletableFuture;
 import javax.annotation.Nullable;
-import org.apache.commons.lang3.tuple.Pair;
 import org.joml.Matrix4f;
 
-import com.mojang.blaze3d.systems.RenderSystem;
 import net.minecraft.block.BeehiveBlock;
-import net.minecraft.block.BlockEntityProvider;
 import net.minecraft.block.BlockState;
-import net.minecraft.block.ChestBlock;
+import net.minecraft.block.entity.AbstractFurnaceBlockEntity;
+import net.minecraft.block.entity.BeehiveBlockEntity;
 import net.minecraft.block.entity.BlockEntity;
-import net.minecraft.block.enums.ChestType;
 import net.minecraft.client.MinecraftClient;
 import net.minecraft.client.gui.DrawContext;
-import net.minecraft.component.DataComponentTypes;
+import net.minecraft.client.network.PlayerListEntry;
+import net.minecraft.client.util.math.MatrixStack;
 import net.minecraft.entity.Entity;
-import net.minecraft.entity.player.PlayerEntity;
-import net.minecraft.inventory.EnderChestInventory;
-import net.minecraft.item.*;
-import net.minecraft.nbt.NbtCompound;
-import net.minecraft.nbt.NbtList;
+import net.minecraft.entity.EntityType;
+import net.minecraft.entity.LivingEntity;
+import net.minecraft.entity.passive.AbstractHorseEntity;
+import net.minecraft.item.FilledMapItem;
+import net.minecraft.item.ItemStack;
 import net.minecraft.registry.Registries;
+import net.minecraft.registry.RegistryKeys;
+import net.minecraft.server.integrated.IntegratedServer;
+import net.minecraft.server.world.ServerChunkManager;
 import net.minecraft.server.world.ServerWorld;
-import net.minecraft.text.Text;
 import net.minecraft.util.Identifier;
 import net.minecraft.util.hit.BlockHitResult;
 import net.minecraft.util.hit.EntityHitResult;
 import net.minecraft.util.hit.HitResult;
 import net.minecraft.util.math.BlockPos;
 import net.minecraft.util.math.ChunkPos;
+import net.minecraft.util.math.Direction;
+import net.minecraft.util.math.MathHelper;
+import net.minecraft.util.math.Vec3d;
+import net.minecraft.world.LightType;
+import net.minecraft.world.LocalDifficulty;
 import net.minecraft.world.World;
+import net.minecraft.world.biome.Biome;
+import net.minecraft.world.chunk.ChunkStatus;
+import net.minecraft.world.chunk.WorldChunk;
+import net.minecraft.world.chunk.light.LightingProvider;
 
 import fi.dy.masa.malilib.config.HudAlignment;
 import fi.dy.masa.malilib.gui.GuiBase;
 import fi.dy.masa.malilib.interfaces.IRenderer;
 import fi.dy.masa.malilib.render.RenderUtils;
-import fi.dy.masa.malilib.util.InventoryUtils;
+import fi.dy.masa.malilib.util.BlockUtils;
 import fi.dy.masa.malilib.util.StringUtils;
 import fi.dy.masa.malilib.util.WorldUtils;
-import fi.dy.masa.malilib.util.game.BlockUtils;
-import fi.dy.masa.malilib.util.nbt.NbtKeys;
-import fi.dy.masa.minihud.Reference;
 import fi.dy.masa.minihud.config.Configs;
 import fi.dy.masa.minihud.config.InfoToggle;
 import fi.dy.masa.minihud.config.RendererToggle;
-import fi.dy.masa.minihud.data.EntitiesDataManager;
-import fi.dy.masa.minihud.data.HudDataManager;
-import fi.dy.masa.minihud.info.InfoLine;
-import fi.dy.masa.minihud.info.InfoLineChunkCache;
-import fi.dy.masa.minihud.info.InfoLineContext;
-import fi.dy.masa.minihud.renderer.InventoryOverlayHandler;
+import fi.dy.masa.minihud.data.MobCapDataHandler;
+import fi.dy.masa.minihud.mixin.world.IMixinServerWorld;
+import fi.dy.masa.minihud.mixin.render.IMixinWorldRenderer;
 import fi.dy.masa.minihud.renderer.OverlayRenderer;
 import fi.dy.masa.minihud.util.DataStorage;
+import fi.dy.masa.minihud.util.IServerEntityManager;
 import fi.dy.masa.minihud.util.MiscUtils;
-import fi.dy.masa.minihud.util.SpeedUnits;
 
 public class RenderHandler implements IRenderer
 {
@@ -64,24 +74,19 @@ public class RenderHandler implements IRenderer
 
     private final MinecraftClient mc;
     private final DataStorage data;
-    private final HudDataManager hudData;
     private final Date date;
-//    private final Map<ChunkPos, CompletableFuture<OptionalChunk<Chunk>>> chunkFutures = new HashMap<>();
+    private final Map<ChunkPos, CompletableFuture<WorldChunk>> chunkFutures = new HashMap<>();
     private final Set<InfoToggle> addedTypes = new HashSet<>();
-//    @Nullable private WorldChunk cachedClientChunk;
+    @Nullable private WorldChunk cachedClientChunk;
     private long infoUpdateTime;
 
     private final List<StringHolder> lineWrappers = new ArrayList<>();
     private final List<String> lines = new ArrayList<>();
-    private Pair<BlockEntity, NbtCompound> lastBlockEntity = null;
-    private Pair<Entity, NbtCompound> lastEntity = null;
-    private Pair<Entity, NbtCompound> lastEnderItems = null;
 
     public RenderHandler()
     {
         this.mc = MinecraftClient.getInstance();
         this.data = DataStorage.getInstance();
-        this.hudData = HudDataManager.getInstance();
         this.date = new Date();
     }
 
@@ -95,41 +100,35 @@ public class RenderHandler implements IRenderer
         return this.data;
     }
 
-    public HudDataManager getHudData()
-    {
-        return this.hudData;
-    }
-
     public static void fixDebugRendererState()
     {
-//        if (Configs.Generic.FIX_VANILLA_DEBUG_RENDERERS.getBooleanValue())
-//        {
-//            RenderSystem.disableLighting();
-//            RenderUtils.color(1, 1, 1, 1);
-//            OpenGlHelper.setLightmapTextureCoords(OpenGlHelper.lightmapTexUnit, 240f, 240f);
-//        }
+        if (false) // FIX_VANILLA_DEBUG_RENDERERS not in 1.20.1
+        {
+            //RenderSystem.disableLighting();
+            //RenderUtils.color(1, 1, 1, 1);
+            //OpenGlHelper.setLightmapTextureCoords(OpenGlHelper.lightmapTexUnit, 240f, 240f);
+        }
     }
 
     @Override
-    public void onRenderGameOverlayPost(DrawContext drawContext)
+    public void onRenderGameOverlayPost(DrawContext context)
     {
         if (Configs.Generic.MAIN_RENDERING_TOGGLE.getBooleanValue() == false)
         {
-//            this.resetCachedChunks();
-            InfoLineChunkCache.INSTANCE.onReset();
+            this.resetCachedChunks();
             return;
         }
 
-        if (mc.getDebugHud().shouldShowDebugHud() == false &&
-            mc.player != null && mc.options.hudHidden == false &&
-            (Configs.Generic.REQUIRE_SNEAK.getBooleanValue() == false || mc.player.isSneaking()) &&
+        if (this.mc.options.debugEnabled == false &&
+            this.mc.player != null && this.mc.options.hudHidden == false &&
+            (Configs.Generic.REQUIRE_SNEAK.getBooleanValue() == false || this.mc.player.isSneaking()) &&
             Configs.Generic.REQUIRED_KEY.getKeybind().isKeybindHeld())
         {
 
-            long currentTime = System.nanoTime();
+            long currentTime = System.currentTimeMillis();
 
             // Only update the text once per game tick
-            if (currentTime - this.infoUpdateTime >= 50000000L)
+            if (currentTime - this.infoUpdateTime >= 50)
             {
                 this.updateLines();
                 this.infoUpdateTime = currentTime;
@@ -143,175 +142,38 @@ public class RenderHandler implements IRenderer
             boolean useBackground = Configs.Generic.USE_TEXT_BACKGROUND.getBooleanValue();
             boolean useShadow = Configs.Generic.USE_FONT_SHADOW.getBooleanValue();
 
-            RenderUtils.renderText(x, y, Configs.Generic.FONT_SCALE.getDoubleValue(), textColor, bgColor, alignment,
-                                   useBackground, useShadow, Configs.Generic.HUD_STATUS_EFFECTS_SHIFT.getBooleanValue(),
-                                   this.lines, drawContext);
-        }
-
-        if (Configs.Generic.INVENTORY_PREVIEW_ENABLED.getBooleanValue() &&
-            Configs.Generic.INVENTORY_PREVIEW.getKeybind().isKeybindHeld())
-        {
-            /*
-            var inventory = RayTraceUtils.getTargetInventory(mc, true);
-
-            if (inventory != null)
-            {
-                fi.dy.masa.minihud.renderer.RenderUtils.renderInventoryOverlay(inventory, drawContext);
-            }
-             */
-
-            InventoryOverlayHandler.getInstance().getRenderContext(drawContext, mc.getProfiler(), mc);
-
-            // OG method (Works with Crafters also)
-            //fi.dy.masa.minihud.renderer.RenderUtils.renderInventoryOverlay(mc, drawContext);
-        }
-    }
-
-    @Override
-    public void onRenderWorldLast(Matrix4f posMatrix, Matrix4f projMatrix)
-    {
-        if (Configs.Generic.MAIN_RENDERING_TOGGLE.getBooleanValue() &&
-            this.mc.world != null && this.mc.player != null && this.mc.options.hudHidden == false)
-        {
-            OverlayRenderer.renderOverlays(posMatrix, projMatrix, this.mc, this.mc.gameRenderer.getCamera(), this.mc.getProfiler());
+            RenderUtils.renderText(x, y, Configs.Generic.FONT_SCALE.getDoubleValue(), textColor, bgColor, alignment, useBackground, useShadow, this.lines, context);
         }
     }
 
     @Override
     public void onRenderTooltipLast(DrawContext drawContext, ItemStack stack, int x, int y)
     {
-        Item item = stack.getItem();
-        if (item instanceof FilledMapItem)
+        if (stack.getItem() instanceof FilledMapItem)
         {
-            if (Configs.Generic.MAP_PREVIEW.getBooleanValue() &&
-               (Configs.Generic.MAP_PREVIEW_REQUIRE_SHIFT.getBooleanValue() == false || GuiBase.isShiftDown()))
+            if (Configs.Generic.MAP_PREVIEW.getBooleanValue())
             {
-                RenderUtils.renderMapPreview(stack, x, y, Configs.Generic.MAP_PREVIEW_SIZE.getIntegerValue(), false);
+                fi.dy.masa.malilib.render.RenderUtils.renderMapPreview(stack, x, y, Configs.Generic.MAP_PREVIEW_SIZE.getIntegerValue());
             }
         }
-        else if (stack.getComponents().contains(DataComponentTypes.CONTAINER) && InventoryUtils.shulkerBoxHasItems(stack))
+        else if (Configs.Generic.SHULKER_BOX_PREVIEW.getBooleanValue())
         {
-            if (Configs.Generic.SHULKER_BOX_PREVIEW.getBooleanValue() &&
-               (Configs.Generic.SHULKER_DISPLAY_REQUIRE_SHIFT.getBooleanValue() == false || GuiBase.isShiftDown()))
+            boolean render = Configs.Generic.SHULKER_DISPLAY_REQUIRE_SHIFT.getBooleanValue() == false || GuiBase.isShiftDown();
+
+            if (render)
             {
-                RenderUtils.renderShulkerBoxPreview(stack, x, y, Configs.Generic.SHULKER_DISPLAY_BACKGROUND_COLOR.getBooleanValue(), drawContext);
-            }
-        }
-        else if (stack.isOf(Items.ENDER_CHEST) && Configs.Generic.SHULKER_DISPLAY_ENDER_CHEST.getBooleanValue())
-        {
-            if (Configs.Generic.SHULKER_BOX_PREVIEW.getBooleanValue() &&
-                (Configs.Generic.SHULKER_DISPLAY_REQUIRE_SHIFT.getBooleanValue() == false || GuiBase.isShiftDown()))
-            {
-                World world = WorldUtils.getBestWorld(this.mc);
-                PlayerEntity player = world.getPlayerByUuid(this.mc.player.getUuid());
-
-                if (player != null)
-                {
-                    Pair<Entity, NbtCompound> pair = EntitiesDataManager.getInstance().requestEntity(world, player.getId());
-                    EnderChestInventory inv;
-
-                    if (pair != null && pair.getRight() != null && pair.getRight().contains(NbtKeys.ENDER_ITEMS))
-                    {
-                        inv = InventoryUtils.getPlayerEnderItemsFromNbt(pair.getRight(), world.getRegistryManager());
-                        this.lastEnderItems = pair;
-                    }
-                    else if (pair != null && pair.getLeft() instanceof PlayerEntity pe && !pe.getEnderChestInventory().isEmpty())
-                    {
-                        inv = pe.getEnderChestInventory();
-                    }
-                    else if (this.lastEnderItems != null)
-                    {
-                        inv = InventoryUtils.getPlayerEnderItemsFromNbt(this.lastEnderItems.getRight(), world.getRegistryManager());
-                    }
-                    else
-                    {
-                        // Last Ditch effort
-                        inv = player.getEnderChestInventory();
-                    }
-
-                    if (inv != null)
-                    {
-                        NbtList list = inv.toNbtList(world.getRegistryManager());
-                        NbtCompound nbt = new NbtCompound();
-
-                        nbt.put(NbtKeys.ENDER_ITEMS, list);
-                        RenderUtils.renderNbtItemsPreview(stack, nbt, x, y, false, drawContext);
-                    }
-                }
-            }
-        }
-        else if (stack.getComponents().contains(DataComponentTypes.BUNDLE_CONTENTS) && InventoryUtils.bundleHasItems(stack))
-        {
-            if (Configs.Generic.BUNDLE_PREVIEW.getBooleanValue() &&
-               (Configs.Generic.BUNDLE_DISPLAY_REQUIRE_SHIFT.getBooleanValue() == false || GuiBase.isShiftDown()))
-            {
-                RenderUtils.renderBundlePreview(stack, x, y, Configs.Generic.BUNDLE_DISPLAY_ROW_WIDTH.getIntegerValue(), Configs.Generic.BUNDLE_DISPLAY_BACKGROUND_COLOR.getBooleanValue(), drawContext);
+                fi.dy.masa.malilib.render.RenderUtils.renderShulkerBoxPreview(stack, x, y, Configs.Generic.SHULKER_DISPLAY_BACKGROUND_COLOR.getBooleanValue(), drawContext);
             }
         }
     }
 
     @Override
-    public Supplier<String> getProfilerSectionSupplier()
+    public void onRenderWorldLast(MatrixStack matrixStack, Matrix4f projMatrix)
     {
-        return () -> Reference.MOD_ID+"_renderer";
-    }
-
-    @Override
-    public void onRenderTooltipComponentInsertFirst(Item.TooltipContext context, ItemStack stack, List<Text> list)
-    {
-        // NO-OP
-    }
-
-    @Override
-    public void onRenderTooltipComponentInsertMiddle(Item.TooltipContext context, ItemStack stack, List<Text> list)
-    {
-        if (Configs.Generic.BUNDLE_TOOLTIPS.getBooleanValue() &&
-            stack.getItem() instanceof BundleItem)
+        if (Configs.Generic.MAIN_RENDERING_TOGGLE.getBooleanValue() &&
+            this.mc.world != null && this.mc.player != null && this.mc.options.hudHidden == false)
         {
-            MiscUtils.addBundleTooltip(stack, list);
-        }
-    }
-
-    @Override
-    public void onRenderTooltipComponentInsertLast(Item.TooltipContext context, ItemStack stack, List<Text> list)
-    {
-        if (Configs.Generic.AXOLOTL_TOOLTIPS.getBooleanValue() &&
-            stack.getItem() == Items.AXOLOTL_BUCKET)
-        {
-            MiscUtils.addAxolotlTooltip(stack, list);
-        }
-
-        if (Configs.Generic.BEE_TOOLTIPS.getBooleanValue() &&
-            stack.getItem() instanceof BlockItem blockItem &&
-            blockItem.getBlock() instanceof BeehiveBlock &&
-            stack.contains(DataComponentTypes.BEES))
-        {
-            MiscUtils.addBeeTooltip(stack, list);
-        }
-
-        if (Configs.Generic.CUSTOM_MODEL_TOOLTIPS.getBooleanValue() &&
-            stack.contains(DataComponentTypes.CUSTOM_MODEL_DATA))
-        {
-            MiscUtils.addCustomModelTooltip(stack, list);
-        }
-
-        if (Configs.Generic.FOOD_TOOLTIPS.getBooleanValue() &&
-            stack.contains(DataComponentTypes.FOOD))
-        {
-            MiscUtils.addFoodTooltip(stack, list);
-        }
-
-        if (Configs.Generic.HONEY_TOOLTIPS.getBooleanValue() &&
-            stack.getItem() instanceof BlockItem blockItem &&
-            blockItem.getBlock() instanceof BeehiveBlock)
-        {
-            MiscUtils.addHoneyTooltip(stack, list);
-        }
-
-        if (Configs.Generic.LODESTONE_TOOLTIPS.getBooleanValue() &&
-            stack.contains(DataComponentTypes.LODESTONE_TRACKER))
-        {
-            MiscUtils.addLodestoneTooltip(stack, list);
+            OverlayRenderer.renderOverlays(matrixStack, projMatrix, this.mc);
         }
     }
 
@@ -345,13 +207,13 @@ public class RenderHandler implements IRenderer
         this.lineWrappers.clear();
         this.addedTypes.clear();
 
-//        if (this.chunkFutures.size() >= 4)
-//        {
-//            this.resetCachedChunks();
-//        }
+        if (this.chunkFutures.size() >= 4)
+        {
+            this.resetCachedChunks();
+        }
 
         // Get the info line order based on the configs
-        List<LinePos> positions = new ArrayList<>();
+        List<LinePos> positions = new ArrayList<LinePos>();
 
         for (InfoToggle toggle : InfoToggle.values())
         {
@@ -393,57 +255,22 @@ public class RenderHandler implements IRenderer
         }
     }
 
-    private void processEntries(List<InfoLine.Entry> list)
-    {
-        if (list == null || list.isEmpty())
-        {
-            return;
-        }
-
-        for (InfoLine.Entry entry : list)
-        {
-            if (!entry.isEmpty())
-            {
-                if (entry.isTranslated())
-                {
-                    this.addLine(entry.format());
-                }
-                else if (entry.hasArgs())
-                {
-                    this.addLineI18n(entry.format(), entry.args());
-                }
-                else
-                {
-                    this.addLineI18n(entry.format());
-                }
-            }
-        }
-    }
-
-    public void addLine(String text)
+    private void addLine(String text)
     {
         this.lineWrappers.add(new StringHolder(text));
-    }
-
-    public void addLineI18n(String translatedName, Object... args)
-    {
-        this.addLine(StringUtils.translate(translatedName, args));
     }
 
     private void addLine(InfoToggle type)
     {
         MinecraftClient mc = this.mc;
         Entity entity = mc.getCameraEntity();
-        World world = entity != null ? entity.getEntityWorld() : null;
-        if (world == null || mc.world == null) return;
+        World world = entity.getEntityWorld();
         double y = entity.getY();
         BlockPos pos = BlockPos.ofFloored(entity.getX(), y, entity.getZ());
         ChunkPos chunkPos = new ChunkPos(pos);
 
         @SuppressWarnings("deprecation")
         boolean isChunkLoaded = mc.world.isChunkLoaded(pos);
-        
-        SpeedUnits speedUnits = (SpeedUnits) Configs.Generic.SPEED_UNITS.getOptionListValue();
 
         if (isChunkLoaded == false)
         {
@@ -452,240 +279,153 @@ public class RenderHandler implements IRenderer
 
         if (type == InfoToggle.FPS)
         {
-            // Make into a generic call
-            InfoLine parser = type.initParser();
-
-            if (parser != null)
-            {
-                InfoLineContext ctx = new InfoLineContext(world, null, null, null, null, null, null);
-                this.processEntries(parser.parse(ctx));
-            }
-            else
-            {
-                return;
-            }
+            this.addLine(String.format("%d fps", MinecraftClient.getInstance().getCurrentFps()));
         }
-//        else if (type == InfoToggle.GPU)
-//        {
-//            // Make into a generic call
-//            InfoLine parser = type.initParser();
-//
-//            if (parser != null)
-//            {
-//                InfoLineContext ctx = new InfoLineContext(world, null, null, null, null, null, null);
-//                this.processEntries(parser.parse(ctx));
-//            }
-//            else
-//            {
-//                return;
-//            }
-//        }
         else if (type == InfoToggle.MEMORY_USAGE)
         {
-            // Make into a generic call
-            InfoLine parser = type.initParser();
+            long memMax = Runtime.getRuntime().maxMemory();
+            long memTotal = Runtime.getRuntime().totalMemory();
+            long memFree = Runtime.getRuntime().freeMemory();
+            long memUsed = memTotal - memFree;
 
-            if (parser != null)
-            {
-                InfoLineContext ctx = new InfoLineContext(world, null, null, null, null, null, null);
-                this.processEntries(parser.parse(ctx));
-            }
-            else
-            {
-                return;
-            }
+            this.addLine(String.format("Mem: % 2d%% %03d/%03dMB | Allocated: % 2d%% %03dMB",
+                    memUsed * 100L / memMax,
+                    MiscUtils.bytesToMb(memUsed),
+                    MiscUtils.bytesToMb(memMax),
+                    memTotal * 100L / memMax,
+                    MiscUtils.bytesToMb(memTotal)));
         }
         else if (type == InfoToggle.TIME_REAL)
         {
-            // Make into a generic call
-            InfoLine parser = type.initParser();
-
-            if (parser != null)
+            try
             {
-                InfoLineContext ctx = new InfoLineContext(world, null, null, null, null, null, null);
-                this.processEntries(parser.parse(ctx));
+                SimpleDateFormat sdf = new SimpleDateFormat("yyyy-MM-dd HH:mm:ss");
+                this.date.setTime(System.currentTimeMillis());
+                this.addLine(sdf.format(this.date));
             }
-            else
+            catch (Exception e)
             {
-                return;
+                this.addLine("Date formatting failed - Invalid date format string?");
             }
         }
         else if (type == InfoToggle.TIME_WORLD)
         {
-            // Make into a generic call
-            InfoLine parser = type.initParser();
-
-            if (parser != null)
-            {
-                InfoLineContext ctx = new InfoLineContext(world, null, null, null, null, null, null);
-                this.processEntries(parser.parse(ctx));
-            }
-            else
-            {
-                return;
-            }
+            long current = world.getTimeOfDay();
+            long total = world.getTime();
+            this.addLine(String.format("World time: %5d - total: %d", current, total));
         }
         else if (type == InfoToggle.TIME_WORLD_FORMATTED)
         {
-            // Make into a generic call
-            InfoLine parser = type.initParser();
+            try
+            {
+                long timeDay = world.getTimeOfDay();
+                long day = (int) (timeDay / 24000);
+                // 1 tick = 3.6 seconds in MC (0.2777... seconds IRL)
+                int dayTicks = (int) (timeDay % 24000);
+                int hour = (int) ((dayTicks / 1000) + 6) % 24;
+                int min = (int) (dayTicks / 16.666666) % 60;
+                int sec = (int) (dayTicks / 0.277777) % 60;
+                // Moonphase has 8 different states in MC
+                String moon = "Invalid";
+                switch ((int) day % 8)
+                {
+                    case 0: moon = "Full moon"; break;
+                    case 1: moon = "Waning gibbous"; break;
+                    case 2: moon = "Last quarter"; break;
+                    case 3: moon = "Waning crescent"; break;
+                    case 4: moon = "New moon"; break;
+                    case 5: moon = "Waxing crescent"; break;
+                    case 6: moon = "First quarter"; break;
+                    case 7: moon = "Waxing gibbous"; break;
+                    default:
+                }
 
-            if (parser != null)
-            {
-                InfoLineContext ctx = new InfoLineContext(world, null, null, null, null, null, null);
-                this.processEntries(parser.parse(ctx));
+                String str = Configs.Generic.DATE_FORMAT_MINECRAFT.getStringValue();
+                str = str.replace("{DAY}",  String.format("%d", day));
+                str = str.replace("{DAY_1}",String.format("%d", day + 1));
+                str = str.replace("{HOUR}", String.format("%02d", hour));
+                str = str.replace("{MIN}",  String.format("%02d", min));
+                str = str.replace("{SEC}",  String.format("%02d", sec));
+                str = str.replace("{MOON}",  String.format("%s", moon));
+
+                this.addLine(str);
             }
-            else
+            catch (Exception e)
             {
-                return;
+                this.addLine("Date formatting failed - Invalid date format string?");
             }
         }
         else if (type == InfoToggle.TIME_DAY_MODULO)
         {
-            // Make into a generic call
-            InfoLine parser = type.initParser();
-
-            if (parser != null)
-            {
-                InfoLineContext ctx = new InfoLineContext(world, null, null, null, null, null, null);
-                this.processEntries(parser.parse(ctx));
-            }
-            else
-            {
-                return;
-            }
+            int mod = Configs.Generic.TIME_DAY_DIVISOR.getIntegerValue();
+            long current = world.getTimeOfDay() % mod;
+            this.addLine(String.format("Day time %% %d: %5d", mod, current));
         }
         else if (type == InfoToggle.TIME_TOTAL_MODULO)
         {
-            // Make into a generic call
-            InfoLine parser = type.initParser();
-
-            if (parser != null)
-            {
-                InfoLineContext ctx = new InfoLineContext(world, null, null, null, null, null, null);
-                this.processEntries(parser.parse(ctx));
-            }
-            else
-            {
-                return;
-            }
+            int mod = Configs.Generic.TIME_TOTAL_DIVISOR.getIntegerValue();
+            long current = world.getTime() % mod;
+            this.addLine(String.format("Total time %% %d: %5d", mod, current));
         }
         else if (type == InfoToggle.SERVER_TPS)
         {
-            if (this.addedTypes.contains(type))
+            if (mc.isIntegratedServerRunning() && (mc.getServer().getTicks() % 10) == 0)
             {
-                return;
+                this.data.updateIntegratedServerTPS();
             }
 
-            // Make into a generic call
-            World bestWorld = WorldUtils.getBestWorld(mc);
-            InfoLine parser = type.initParser();
-
-            if (parser != null)
+            if (this.data.hasTPSData())
             {
-                InfoLineContext ctx = new InfoLineContext(bestWorld, null, null, null, null, null, null);
-                this.processEntries(parser.parse(ctx));
+                double tps = this.data.getServerTPS();
+                double mspt = this.data.getServerMSPT();
+                String rst = GuiBase.TXT_RST;
+                String preTps = tps >= 20.0D ? GuiBase.TXT_GREEN : GuiBase.TXT_RED;
+                String preMspt;
 
-                if (parser.succeededType())
+                // Carpet server and integrated server have actual meaningful MSPT data available
+                if (false || mc.isInSingleplayer())
                 {
-                    this.addedTypes.add(type);
+                    if      (mspt <= 40) { preMspt = GuiBase.TXT_GREEN; }
+                    else if (mspt <= 45) { preMspt = GuiBase.TXT_YELLOW; }
+                    else if (mspt <= 50) { preMspt = GuiBase.TXT_GOLD; }
+                    else                 { preMspt = GuiBase.TXT_RED; }
+
+                    this.addLine(String.format("Server TPS: %s%.1f%s MSPT: %s%.1f%s", preTps, tps, rst, preMspt, mspt, rst));
+                }
+                else
+                {
+                    if (mspt <= 51) { preMspt = GuiBase.TXT_GREEN; }
+                    else            { preMspt = GuiBase.TXT_RED; }
+
+                    this.addLine(String.format("Server TPS: %s%.1f%s (MSPT [est]: %s%.1f%s)", preTps, tps, rst, preMspt, mspt, rst));
                 }
             }
             else
             {
-                return;
-            }
-        }
-        else if (type == InfoToggle.SERVUX)
-        {
-            if (this.addedTypes.contains(type))
-            {
-                return;
-            }
-
-            // Make into a generic call
-            World bestWorld = WorldUtils.getBestWorld(mc);
-            InfoLine parser = type.initParser();
-
-            if (parser != null)
-            {
-                InfoLineContext ctx = new InfoLineContext(bestWorld, null, null, null, null, null, null);
-                this.processEntries(parser.parse(ctx));
-
-                if (parser.succeededType())
-                {
-                    this.addedTypes.add(type);
-                }
-            }
-            else
-            {
-                return;
-            }
-        }
-        else if (type == InfoToggle.WEATHER)
-        {
-            if (this.addedTypes.contains(type))
-            {
-                return;
-            }
-
-            // Make into a generic call
-            World bestWorld = WorldUtils.getBestWorld(mc);
-            InfoLine parser = type.initParser();
-
-            if (parser != null)
-            {
-                InfoLineContext ctx = new InfoLineContext(bestWorld, null, null, null, null, null, null);
-                this.processEntries(parser.parse(ctx));
-
-                if (parser.succeededType())
-                {
-                    this.addedTypes.add(type);
-                }
-            }
-            else
-            {
-                return;
+                this.addLine("Server TPS: <no valid data>");
             }
         }
         else if (type == InfoToggle.MOB_CAPS)
         {
-            if (this.addedTypes.contains(type))
+            MobCapDataHandler mobCapData = this.data.getMobCapData();
+
+            if (mc.isIntegratedServerRunning() && (mc.getServer().getTicks() % 100) == 0)
             {
-                return;
+                mobCapData.updateIntegratedServerMobCaps();
             }
 
-            // Make into a generic call
-            World bestWorld = WorldUtils.getBestWorld(mc);
-            InfoLine parser = type.initParser();
-
-            if (parser != null)
+            if (mobCapData.getHasValidData())
             {
-                InfoLineContext ctx = new InfoLineContext(bestWorld, null, null, null, null, null, null);
-                this.processEntries(parser.parse(ctx));
-
-                if (parser.succeededType())
-                {
-                    this.addedTypes.add(type);
-                }
-            }
-            else
-            {
-                return;
+                this.addLine(mobCapData.getFormattedInfoLine());
             }
         }
         else if (type == InfoToggle.PING)
         {
-            InfoLine parser = type.initParser();
+            PlayerListEntry info = mc.player.networkHandler.getPlayerListEntry(mc.player.getUuid());
 
-            if (parser != null)
+            if (info != null)
             {
-                InfoLineContext ctx = new InfoLineContext(world, mc.player, null, null, null, null, null);
-                this.processEntries(parser.parse(ctx));
-            }
-            else
-            {
-                return;
+                this.addLine("Ping: " + info.getLatency() + " ms");
             }
         }
         else if (type == InfoToggle.COORDINATES ||
@@ -700,22 +440,84 @@ public class RenderHandler implements IRenderer
                 return;
             }
 
-            InfoLine parser = type.initParser();
+            String pre = "";
+            StringBuilder str = new StringBuilder(128);
+            String fmtStr = Configs.Generic.COORDINATE_FORMAT_STRING.getStringValue();
+            double x = entity.getX();
+            double z = entity.getZ();
 
-            if (parser != null)
+            if (InfoToggle.COORDINATES.getBooleanValue())
             {
-                InfoLineContext ctx = new InfoLineContext(world, entity, null, null, null, null, null);
-                this.processEntries(parser.parse(ctx));
-
-                if (parser.succeededType())
+                if (Configs.Generic.USE_CUSTOMIZED_COORDINATES.getBooleanValue())
                 {
-                    this.addedTypes.add(type);
+                    try
+                    {
+                        str.append(String.format(fmtStr, x, y, z));
+                    }
+                    // Uh oh, someone done goofed their format string... :P
+                    catch (Exception e)
+                    {
+                        str.append("broken coordinate format string!");
+                    }
                 }
+                else
+                {
+                    str.append(String.format("XYZ: %.2f / %.4f / %.2f", x, y, z));
+                }
+
+                pre = " / ";
             }
-            else
+
+            if (InfoToggle.COORDINATES_SCALED.getBooleanValue() &&
+                (world.getRegistryKey() == World.NETHER || world.getRegistryKey() == World.OVERWORLD))
             {
-                return;
+                boolean isNether = world.getRegistryKey() == World.NETHER;
+                double scale = isNether ? 8.0 : 1.0 / 8.0;
+                x *= scale;
+                z *= scale;
+
+                str.append(pre);
+
+                if (isNether)
+                {
+                    str.append("Overworld: ");
+                }
+                else
+                {
+                    str.append("Nether: ");
+                }
+
+                if (Configs.Generic.USE_CUSTOMIZED_COORDINATES.getBooleanValue())
+                {
+                    try
+                    {
+                        str.append(String.format(fmtStr, x, y, z));
+                    }
+                    // Uh oh, someone done goofed their format string... :P
+                    catch (Exception e)
+                    {
+                        str.append("broken coordinate format string!");
+                    }
+                }
+                else
+                {
+                    str.append(String.format("XYZ: %.2f / %.4f / %.2f", x, y, z));
+                }
+
+                pre = " / ";
             }
+
+            if (InfoToggle.DIMENSION.getBooleanValue())
+            {
+                String dimName = world.getRegistryKey().getValue().toString();
+                str.append(pre).append("dim: ").append(dimName);
+            }
+
+            this.addLine(str.toString());
+
+            this.addedTypes.add(InfoToggle.COORDINATES);
+            this.addedTypes.add(InfoToggle.COORDINATES_SCALED);
+            this.addedTypes.add(InfoToggle.DIMENSION);
         }
         else if (type == InfoToggle.BLOCK_POS ||
                  type == InfoToggle.CHUNK_POS ||
@@ -729,272 +531,150 @@ public class RenderHandler implements IRenderer
                 return;
             }
 
-            InfoLine parser = type.initParser();
+            String pre = "";
+            StringBuilder str = new StringBuilder(256);
 
-            if (parser != null)
+            if (InfoToggle.BLOCK_POS.getBooleanValue())
             {
-                InfoLineContext ctx = new InfoLineContext(world, null, null, pos, null, chunkPos, null);
-                this.processEntries(parser.parse(ctx));
+                str.append(String.format("Block: %d, %d, %d", pos.getX(), pos.getY(), pos.getZ()));
+                pre = " / ";
+            }
 
-                if (parser.succeededType())
-                {
-                    this.addedTypes.add(type);
-                }
-            }
-            else
+            if (InfoToggle.CHUNK_POS.getBooleanValue())
             {
-                return;
+                str.append(pre).append(String.format("Sub-Chunk: %d, %d, %d", chunkPos.x, pos.getY() >> 4, chunkPos.z));
+                pre = " / ";
             }
+
+            if (InfoToggle.REGION_FILE.getBooleanValue())
+            {
+                str.append(pre).append(String.format("Region: r.%d.%d", pos.getX() >> 9, pos.getZ() >> 9));
+            }
+
+            this.addLine(str.toString());
+
+            this.addedTypes.add(InfoToggle.BLOCK_POS);
+            this.addedTypes.add(InfoToggle.CHUNK_POS);
+            this.addedTypes.add(InfoToggle.REGION_FILE);
         }
         else if (type == InfoToggle.BLOCK_IN_CHUNK)
         {
-            InfoLine parser = type.initParser();
-
-            if (parser != null)
-            {
-//		        BlockPos lookPos = ((BlockHitResult) mc.crosshairTarget).getBlockPos();
-                InfoLineContext ctx = new InfoLineContext(world, null, null, pos, null, chunkPos, null);
-                this.processEntries(parser.parse(ctx));
-            }
-            else
-            {
-                return;
-            }
+            this.addLine(String.format("Block: %d, %d, %d within Sub-Chunk: %d, %d, %d",
+                        pos.getX() & 0xF, pos.getY() & 0xF, pos.getZ() & 0xF,
+                        chunkPos.x, pos.getY() >> 4, chunkPos.z));
         }
         else if (type == InfoToggle.BLOCK_BREAK_SPEED)
         {
-            InfoLine parser = type.initParser();
-
-            if (parser != null)
-            {
-                InfoLineContext ctx = new InfoLineContext(world, null, null, null, null, null, null);
-                this.processEntries(parser.parse(ctx));
-            }
-            else
-            {
-                return;
-            }
+            this.addLine(String.format("BBS: %.2f", DataStorage.getInstance().getBlockBreakingSpeed()));
         }
-        else if (type == InfoToggle.SPRINTING)
+        else if (type == InfoToggle.SPRINTING && mc.player.isSprinting())
         {
-            InfoLine parser = type.initParser();
-
-            if (parser != null)
-            {
-                InfoLineContext ctx = new InfoLineContext(world, null, null, null, null, null, null);
-                this.processEntries(parser.parse(ctx));
-            }
-            else
-            {
-                return;
-            }
+            this.addLine("§6Sprinting");
         }
         else if (type == InfoToggle.DISTANCE)
         {
-            InfoLine parser = type.initParser();
-
-            if (parser != null)
-            {
-                InfoLineContext ctx = new InfoLineContext(world, entity, null, null, null, null, null);
-                this.processEntries(parser.parse(ctx));
-            }
-            else
-            {
-                return;
-            }
+            Vec3d ref = DataStorage.getInstance().getDistanceReferencePoint();
+            double dist = Math.sqrt(ref.squaredDistanceTo(entity.getX(), entity.getY(), entity.getZ()));
+            this.addLine(String.format("Distance: %.2f (x: %.2f y: %.2f z: %.2f) [to x: %.2f y: %.2f z: %.2f]",
+                    dist, entity.getX() - ref.x, entity.getY() - ref.y, entity.getZ() - ref.z, ref.x, ref.y, ref.z));
         }
         else if (type == InfoToggle.FACING)
         {
-            InfoLine parser = type.initParser();
+            Direction facing = entity.getHorizontalFacing();
+            String str = "Invalid";
 
-            if (parser != null)
+            switch (facing)
             {
-                InfoLineContext ctx = new InfoLineContext(world, entity, null, null, null, null, null);
-                this.processEntries(parser.parse(ctx));
+                case NORTH: str = "Negative Z"; break;
+                case SOUTH: str = "Positive Z"; break;
+                case WEST:  str = "Negative X"; break;
+                case EAST:  str = "Positive X"; break;
+                default:
             }
-            else
-            {
-                return;
-            }
+
+            this.addLine(String.format("Facing: %s (%s)", facing, str));
         }
         else if (type == InfoToggle.LIGHT_LEVEL)
         {
-            InfoLine parser = type.initParser();
+            WorldChunk clientChunk = this.getClientChunk(chunkPos);
 
-            if (parser != null)
+            if (clientChunk.isEmpty() == false)
             {
-                InfoLineContext ctx = new InfoLineContext(world, null, null, pos, null, chunkPos, null);
-                this.processEntries(parser.parse(ctx));
-            }
-            else
-            {
-                return;
+                LightingProvider lightingProvider = world.getChunkManager().getLightingProvider();
+
+                this.addLine(String.format("Light (block): %d",
+                                           lightingProvider.get(LightType.BLOCK).getLightLevel(pos)));
             }
         }
         else if (type == InfoToggle.BEE_COUNT)
         {
-            // Make into a generic call
-            InfoLine parser = type.initParser();
+            World bestWorld = WorldUtils.getBestWorld(mc);
+            BlockEntity be = this.getTargetedBlockEntity(bestWorld, mc);
 
-            if (parser != null)
+            if (be instanceof BeehiveBlockEntity)
             {
-                World bestWorld = WorldUtils.getBestWorld(mc);
-                Pair<BlockEntity, NbtCompound> pair = this.getTargetedBlockEntity(bestWorld, mc);
-
-                if (pair != null)
-                {
-                    InfoLineContext ctx = new InfoLineContext(bestWorld, null, pair.getLeft(), null, null, null, pair.getRight());
-                    this.processEntries(parser.parse(ctx));
-
-                    if (parser.succeededType())
-                    {
-                        this.addedTypes.add(type);
-                    }
-                }
-                else
-                {
-                    return;
-                }
-            }
-            else
-            {
-                return;
-            }
-        }
-        else if (type == InfoToggle.COMPARATOR_OUTPUT)
-        {
-            // Make into a generic call
-            InfoLine parser = type.initParser();
-
-            if (parser != null)
-            {
-                World bestWorld = WorldUtils.getBestWorld(mc);
-                Pair<BlockEntity, NbtCompound> pair = this.getTargetedBlockEntity(bestWorld, mc);
-
-                if (pair != null)
-                {
-                    InfoLineContext ctx = new InfoLineContext(bestWorld, null, pair.getLeft(), null, null, null, pair.getRight());
-                    this.processEntries(parser.parse(ctx));
-
-                    if (parser.succeededType())
-                    {
-                        this.addedTypes.add(type);
-                    }
-                    else
-                    {
-                        return;
-                    }
-                }
-                else
-                {
-                    return;
-                }
-            }
-            else
-            {
-                return;
-            }
-        }
-        else if (type == InfoToggle.HONEY_LEVEL)
-        {
-            // Make into a generic call
-            InfoLine parser = type.initParser();
-
-            if (parser != null)
-            {
-                BlockState state = this.getTargetedBlock(mc);
-
-                if (state != null)
-                {
-                    InfoLineContext ctx = new InfoLineContext(world, null, null, null, state, null, null);
-                    this.processEntries(parser.parse(ctx));
-
-                    if (parser.succeededType())
-                    {
-                        this.addedTypes.add(type);
-                    }
-                }
-                else
-                {
-                    return;
-                }
-            }
-            else
-            {
-                return;
+                this.addLine("Bees: " + GuiBase.TXT_AQUA + ((BeehiveBlockEntity) be).getBeeCount());
             }
         }
         else if (type == InfoToggle.FURNACE_XP)
         {
-            // Make into a generic call
-            InfoLine parser = type.initParser();
+            World bestWorld = WorldUtils.getBestWorld(mc);
+            BlockEntity be = this.getTargetedBlockEntity(bestWorld, mc);
 
-            if (parser != null)
+            if (be instanceof AbstractFurnaceBlockEntity furnace)
             {
-                World bestWorld = WorldUtils.getBestWorld(mc);
-                Pair<BlockEntity, NbtCompound> pair = this.getTargetedBlockEntity(bestWorld, mc);
-
-                if (pair != null)
-                {
-                    InfoLineContext ctx = new InfoLineContext(bestWorld, null, pair.getLeft(), null, null, null, pair.getRight());
-                    this.processEntries(parser.parse(ctx));
-
-                    if (parser.succeededType())
-                    {
-                        this.addedTypes.add(type);
-                    }
-                }
-                else
-                {
-                    return;
-                }
+                this.addLine("Furnace XP: " + GuiBase.TXT_AQUA + MiscUtils.getFurnaceXpAmount(furnace));
             }
-            else
+        }
+        else if (type == InfoToggle.HONEY_LEVEL)
+        {
+            BlockState state = this.getTargetedBlock(mc);
+
+            if (state != null && state.getBlock() instanceof BeehiveBlock)
             {
-                return;
+                this.addLine("Honey: " + GuiBase.TXT_AQUA + BeehiveBlockEntity.getHoneyLevel(state));
             }
         }
         else if (type == InfoToggle.HORSE_SPEED ||
-                 type == InfoToggle.HORSE_JUMP ||
-                 type == InfoToggle.HORSE_MAX_HEALTH)
+                 type == InfoToggle.HORSE_JUMP)
         {
-            if (this.addedTypes.contains(type))
+            if (this.addedTypes.contains(InfoToggle.HORSE_SPEED) ||
+                this.addedTypes.contains(InfoToggle.HORSE_JUMP))
             {
                 return;
             }
 
-            // Make into a generic call
-            World bestWorld = WorldUtils.getBestWorld(mc);
-            InfoLine parser = type.initParser();
+            Entity vehicle = this.mc.player.getVehicle();
 
-            if (parser != null)
-            {
-                Pair<Entity, NbtCompound> pair = this.getTargetEntity(bestWorld, mc);
-                InfoLineContext ctx;
-
-                if (mc.player.hasVehicle() && pair == null)
-                {
-                    ctx = new InfoLineContext(bestWorld, mc.player.getVehicle(), null, null, null, null, null);
-                }
-                else if (pair != null)
-                {
-                    ctx = new InfoLineContext(bestWorld, pair.getLeft(), null, null, null, null, pair.getRight());
-                }
-                else
-                {
-                    return;
-                }
-
-                this.processEntries(parser.parse(ctx));
-
-                if (parser.succeededType())
-                {
-                    this.addedTypes.add(type);
-                }
-            }
-            else
+            if ((vehicle instanceof AbstractHorseEntity) == false)
             {
                 return;
+            }
+
+            AbstractHorseEntity horse = (AbstractHorseEntity) vehicle;
+
+            if (horse.isSaddled())
+            {
+                if (InfoToggle.HORSE_SPEED.getBooleanValue())
+                {
+                    float speed = horse.getMovementSpeed();
+                    speed *= 42.163f;
+                    this.addLine(String.format("Horse Speed: %.3f m/s", speed));
+                }
+
+                if (InfoToggle.HORSE_JUMP.getBooleanValue())
+                {
+                    double jump = horse.getJumpStrength();
+                    double calculatedJumpHeight =
+                            -0.1817584952d * jump * jump * jump +
+                            3.689713992d * jump * jump +
+                            2.128599134d * jump +
+                            -0.343930367;
+                    this.addLine(String.format("Horse Jump: %.3f m", calculatedJumpHeight));
+                }
+
+                this.addedTypes.add(InfoToggle.HORSE_SPEED);
+                this.addedTypes.add(InfoToggle.HORSE_JUMP);
             }
         }
         else if (type == InfoToggle.ROTATION_YAW ||
@@ -1009,792 +689,270 @@ public class RenderHandler implements IRenderer
                 return;
             }
 
-            InfoLine parser = type.initParser();
+            String pre = "";
+            StringBuilder str = new StringBuilder(128);
 
-            if (parser != null)
+            if (InfoToggle.ROTATION_YAW.getBooleanValue())
             {
-                InfoLineContext ctx = new InfoLineContext(world, entity, null, null, null, null, null);
-                this.processEntries(parser.parse(ctx));
+                str.append(String.format("yaw: %.1f", MathHelper.wrapDegrees(entity.getYaw())));
+                pre = " / ";
+            }
 
-                if (parser.succeededType())
-                {
-                    this.addedTypes.add(type);
-                }
-            }
-            else
+            if (InfoToggle.ROTATION_PITCH.getBooleanValue())
             {
-                return;
+                str.append(pre).append(String.format("pitch: %.1f", MathHelper.wrapDegrees(entity.getPitch())));
+                pre = " / ";
             }
+
+            if (InfoToggle.SPEED.getBooleanValue())
+            {
+                double dx = entity.getX() - entity.lastRenderX;
+                double dy = entity.getY() - entity.lastRenderY;
+                double dz = entity.getZ() - entity.lastRenderZ;
+                double dist = Math.sqrt(dx * dx + dy * dy + dz * dz);
+                str.append(pre).append(String.format("speed: %.3f m/s", dist * 20));
+            }
+
+            this.addLine(str.toString());
+
+            this.addedTypes.add(InfoToggle.ROTATION_YAW);
+            this.addedTypes.add(InfoToggle.ROTATION_PITCH);
+            this.addedTypes.add(InfoToggle.SPEED);
         }
         else if (type == InfoToggle.SPEED_HV)
         {
-            InfoLine parser = type.initParser();
-
-            if (parser != null)
-            {
-                InfoLineContext ctx = new InfoLineContext(world, entity, null, null, null, null, null);
-                this.processEntries(parser.parse(ctx));
-            }
-            else
-            {
-                return;
-            }
+            double dx = entity.getX() - entity.lastRenderX;
+            double dy = entity.getY() - entity.lastRenderY;
+            double dz = entity.getZ() - entity.lastRenderZ;
+            this.addLine(String.format("speed: xz: %.3f y: %.3f m/s", Math.sqrt(dx * dx + dz * dz) * 20, dy * 20));
         }
         else if (type == InfoToggle.SPEED_AXIS)
         {
-            InfoLine parser = type.initParser();
-
-            if (parser != null)
-            {
-                InfoLineContext ctx = new InfoLineContext(world, entity, null, null, null, null, null);
-                this.processEntries(parser.parse(ctx));
-            }
-            else
-            {
-                return;
-            }
+            double dx = entity.getX() - entity.lastRenderX;
+            double dy = entity.getY() - entity.lastRenderY;
+            double dz = entity.getZ() - entity.lastRenderZ;
+            this.addLine(String.format("speed: x: %.3f y: %.3f z: %.3f m/s", dx * 20, dy * 20, dz * 20));
         }
         else if (type == InfoToggle.CHUNK_SECTIONS)
         {
-            // Make into a generic call
-            InfoLine parser = type.initParser();
-
-            if (parser != null)
-            {
-                InfoLineContext ctx = new InfoLineContext(world, null, null, null, null, null, null);
-                this.processEntries(parser.parse(ctx));
-            }
-            else
-            {
-                return;
-            }
+            this.addLine(String.format("C: %d", 0)); // IMixinWorldRenderer removed for 1.20.1
         }
         else if (type == InfoToggle.CHUNK_SECTIONS_FULL)
         {
-            // Make into a generic call
-            InfoLine parser = type.initParser();
-
-            if (parser != null)
-            {
-                InfoLineContext ctx = new InfoLineContext(world, null, null, null, null, null, null);
-                this.processEntries(parser.parse(ctx));
-            }
-            else
-            {
-                return;
-            }
+            this.addLine(mc.worldRenderer.getChunksDebugString());
         }
         else if (type == InfoToggle.CHUNK_UPDATES)
         {
-            // Make into a generic call
-            InfoLine parser = type.initParser();
-
-            if (parser != null)
-            {
-                InfoLineContext ctx = new InfoLineContext(world, null, null, null, null, null, null);
-                this.processEntries(parser.parse(ctx));
-            }
-            else
-            {
-                return;
-            }
+            this.addLine("TODO" /*String.format("Chunk updates: %d", ChunkRenderer.chunkUpdateCount)*/);
         }
         else if (type == InfoToggle.LOADED_CHUNKS_COUNT)
         {
-            if (this.addedTypes.contains(type))
+            String chunksClient = mc.world.asString();
+            World worldServer = WorldUtils.getBestWorld(mc);
+
+            if (worldServer != null && worldServer != mc.world)
             {
-                return;
-            }
-
-            // Make into a generic call
-            World bestWorld = WorldUtils.getBestWorld(mc);
-            InfoLine parser = type.initParser();
-
-            if (parser != null)
-            {
-                InfoLineContext ctx = new InfoLineContext(bestWorld, null, null, null, null, null, null);
-                this.processEntries(parser.parse(ctx));
-
-                if (parser.succeededType())
-                {
-                    this.addedTypes.add(type);
-                }
+                int chunksServer = ((ServerChunkManager) worldServer.getChunkManager()).getLoadedChunkCount();
+                int chunksServerTot = ((ServerChunkManager) worldServer.getChunkManager()).getTotalChunksLoadedCount();
+                this.addLine(String.format("Server: %d / %d - Client: %s", chunksServer, chunksServerTot, chunksClient));
             }
             else
             {
-                return;
-            }
-        }
-        else if (type == InfoToggle.PANDA_GENE)
-        {
-            // Make into a generic call
-            InfoLine parser = type.initParser();
-
-            if (parser != null)
-            {
-                Pair<Entity, NbtCompound> pair = this.getTargetEntity(world, mc);
-
-                if (pair != null)
-                {
-                    InfoLineContext ctx = new InfoLineContext(world, pair.getLeft(), null, null, null, null, pair.getRight());
-                    this.processEntries(parser.parse(ctx));
-
-                    if (parser.succeededType())
-                    {
-                        this.addedTypes.add(type);
-                    }
-                }
-                else
-                {
-                    return;
-                }
-            }
-            else
-            {
-                return;
+                this.addLine(chunksClient);
             }
         }
         else if (type == InfoToggle.PARTICLE_COUNT)
         {
-            // Make into a generic call
-            InfoLine parser = type.initParser();
-
-            if (parser != null)
-            {
-                InfoLineContext ctx = new InfoLineContext(world, null, null, null, null, null, null);
-                this.processEntries(parser.parse(ctx));
-            }
-            else
-            {
-                return;
-            }
+            this.addLine(String.format("P: %s", mc.particleManager.getDebugString()));
         }
         else if (type == InfoToggle.DIFFICULTY)
         {
-            // Make into a generic call
-            InfoLine parser = type.initParser();
+            long chunkInhabitedTime = 0L;
+            float moonPhaseFactor = 0.0F;
+            WorldChunk serverChunk = this.getChunk(chunkPos);
 
-            if (parser != null)
+            if (serverChunk != null)
             {
-                InfoLineContext ctx = new InfoLineContext(world, null, null, pos, null, null, null);
-                this.processEntries(parser.parse(ctx));
+                moonPhaseFactor = mc.world.getMoonSize();
+                chunkInhabitedTime = serverChunk.getInhabitedTime();
             }
-            else
-            {
-                return;
-            }
+
+            LocalDifficulty diff = new LocalDifficulty(mc.world.getDifficulty(), mc.world.getTimeOfDay(), chunkInhabitedTime, moonPhaseFactor);
+            this.addLine(String.format("Local Difficulty: %.2f // %.2f (Day %d)",
+                    diff.getLocalDifficulty(), diff.getClampedLocalDifficulty(), mc.world.getTimeOfDay() / 24000L));
         }
         else if (type == InfoToggle.BIOME)
         {
-            InfoLine parser = type.initParser();
+            WorldChunk clientChunk = this.getClientChunk(chunkPos);
 
-            if (parser != null)
+            if (clientChunk.isEmpty() == false)
             {
-                InfoLineContext ctx = new InfoLineContext(world, null, null, pos, null, chunkPos, null);
-                this.processEntries(parser.parse(ctx));
-            }
-            else
-            {
-                return;
+                Biome biome = mc.world.getBiome(pos).value();
+                Identifier id = mc.world.getRegistryManager().get(RegistryKeys.BIOME).getId(biome);
+                this.addLine("Biome: " + StringUtils.translate("biome." + id.toString().replace(":", ".")));
             }
         }
         else if (type == InfoToggle.BIOME_REG_NAME)
         {
-            InfoLine parser = type.initParser();
+            WorldChunk clientChunk = this.getClientChunk(chunkPos);
 
-            if (parser != null)
+            if (clientChunk.isEmpty() == false)
             {
-                InfoLineContext ctx = new InfoLineContext(world, null, null, pos, null, chunkPos, null);
-                this.processEntries(parser.parse(ctx));
-            }
-            else
-            {
-                return;
+                Biome biome = mc.world.getBiome(pos).value();
+                Identifier rl = mc.world.getRegistryManager().get(RegistryKeys.BIOME).getId(biome);
+                String name = rl != null ? rl.toString() : "?";
+                this.addLine("Biome reg name: " + name);
             }
         }
-        else if (type == InfoToggle.ENTITIES ||
-                 type == InfoToggle.TILE_ENTITIES)
+        else if (type == InfoToggle.ENTITIES)
         {
-            if (this.addedTypes.contains(InfoToggle.ENTITIES) ||
-                this.addedTypes.contains(InfoToggle.TILE_ENTITIES))
+            String ent = mc.worldRenderer.getEntitiesDebugString();
+
+            int p = ent.indexOf(",");
+
+            if (p != -1)
             {
-                return;
+                ent = ent.substring(0, p);
             }
 
-            InfoLine parser = type.initParser();
-
-            if (parser != null)
-            {
-                InfoLineContext ctx = new InfoLineContext(world, null, null, null, null, null, null);
-                this.processEntries(parser.parse(ctx));
-
-                if (parser.succeededType())
-                {
-                    this.addedTypes.add(type);
-                }
-            }
-            else
-            {
-                return;
-            }
+            this.addLine(ent);
+        }
+        else if (type == InfoToggle.TILE_ENTITIES)
+        {
+            // TODO 1.17
+            //this.addLine(String.format("Client world TE - L: %d, T: %d", mc.world.blockEntities.size(), mc.world.tickingBlockEntities.size()));
+            this.addLine("Client world TE - L: ?, T: ? - TODO 1.17");
         }
         else if (type == InfoToggle.ENTITIES_CLIENT_WORLD)
         {
-            InfoLine parser = type.initParser();
+            int countClient = mc.world.getRegularEntityCount();
 
-            if (parser != null)
+            if (mc.isIntegratedServerRunning())
             {
-                InfoLineContext ctx = new InfoLineContext(WorldUtils.getBestWorld(mc), null, null, null, null, null, null);
-                this.processEntries(parser.parse(ctx));
+                World serverWorld = WorldUtils.getBestWorld(mc);
+
+                if (serverWorld instanceof ServerWorld)
+                {
+                    IServerEntityManager manager = null;
+                    int indexSize = 0; // IMixinServerWorld removed
+                    this.addLine(String.format("Entities - Client: %d - Server: %d", countClient, indexSize));
+                    return;
+                }
             }
-            else
-            {
-                return;
-            }
+
+            this.addLine(String.format("Entities - Client: %d", countClient));
         }
         else if (type == InfoToggle.SLIME_CHUNK)
         {
-            // Make into a generic call
-            InfoLine parser = type.initParser();
-
-            if (parser != null)
-            {
-                InfoLineContext ctx = new InfoLineContext(world, null, null, pos, null, null, null);
-                this.processEntries(parser.parse(ctx));
-            }
-            else
+            if (MiscUtils.isOverworld(world) == false)
             {
                 return;
             }
+
+            String result;
+
+            if (this.data.isWorldSeedKnown(world))
+            {
+                long seed = this.data.getWorldSeed(world);
+
+                if (MiscUtils.canSlimeSpawnAt(pos.getX(), pos.getZ(), seed))
+                {
+                    result = GuiBase.TXT_GREEN + "YES" + GuiBase.TXT_RST;
+                }
+                else
+                {
+                    result = GuiBase.TXT_RED + "NO" + GuiBase.TXT_RST;
+                }
+            }
+            else
+            {
+                result = "<world seed not known>";
+            }
+
+            this.addLine("Slime chunk: " + result);
         }
         else if (type == InfoToggle.LOOKING_AT_ENTITY)
         {
-            // Make into a generic call
-            InfoLine parser = type.initParser();
-
-            if (parser != null)
+            if (mc.crosshairTarget != null && mc.crosshairTarget.getType() == HitResult.Type.ENTITY)
             {
-                Pair<Entity, NbtCompound> pair = this.getTargetEntity(world, mc);
+                Entity lookedEntity = ((EntityHitResult) mc.crosshairTarget).getEntity();
 
-                if (pair != null)
+                if (lookedEntity instanceof LivingEntity)
                 {
-                    InfoLineContext ctx = new InfoLineContext(world, pair.getLeft(), null, null, null, null, pair.getRight());
-                    this.processEntries(parser.parse(ctx));
-
-                    if (parser.succeededType())
-                    {
-                        this.addedTypes.add(type);
-                    }
+                    LivingEntity living = (LivingEntity) lookedEntity;
+                    this.addLine(String.format("Entity: %s - HP: %.1f / %.1f",
+                            living.getName().getString(), living.getHealth(), living.getMaxHealth()));
                 }
                 else
                 {
-                    return;
+                    this.addLine(String.format("Entity: %s", lookedEntity.getName().getString()));
                 }
-            }
-            else
-            {
-                return;
-            }
-        }
-        else if (type == InfoToggle.ENTITY_VARIANT)
-        {
-            InfoLine parser = type.initParser();
-
-            if (parser != null)
-            {
-                Pair<Entity, NbtCompound> pair = this.getTargetEntity(world, mc);
-
-                if (pair != null)
-                {
-                    InfoLineContext ctx = new InfoLineContext(world, pair.getLeft(), null, null, null, null, pair.getRight());
-                    this.processEntries(parser.parse(ctx));
-
-                    if (parser.succeededType())
-                    {
-                        this.addedTypes.add(type);
-                    }
-                }
-                else
-                {
-                    return;
-                }
-            }
-            else
-            {
-                return;
-            }
-        }
-        // todo 1.21.8+
-//        else if (type == InfoToggle.ENTITY_HOME_POS)
-//        {
-//            InfoLine parser = type.initParser();
-//
-//            if (parser != null)
-//            {
-//                Pair<Entity, NbtCompound> pair = this.getTargetEntity(world, mc);
-//
-//                if (pair != null)
-//                {
-//                    InfoLineContext ctx = new InfoLineContext(world, pair.getLeft(), null, null, null, null, pair.getRight());
-//                    this.processEntries(parser.parse(ctx));
-//
-//                    if (parser.succeededType())
-//                    {
-//                        this.addedTypes.add(type);
-//                    }
-//                }
-//                else
-//                {
-//                    return;
-//                }
-//            }
-//            else
-//            {
-//                return;
-//            }
-//        }
-        // todo 1.21.10+
-//        else if (type == InfoToggle.ENTITY_COPPER_AGING)
-//        {
-//            InfoLine parser = type.initParser();
-//
-//            if (parser != null)
-//            {
-//                Pair<Entity, NbtCompound> pair = this.getTargetEntity(world, mc);
-//
-//                if (pair != null)
-//                {
-//                    InfoLineContext ctx = new InfoLineContext(world, pair.getLeft(), null, null, null, null, pair.getRight());
-//                    this.processEntries(parser.parse(ctx));
-//
-//                    if (parser.succeededType())
-//                    {
-//                        this.addedTypes.add(type);
-//                    }
-//                }
-//                else
-//                {
-//                    return;
-//                }
-//            }
-//            else
-//            {
-//                return;
-//            }
-//        }
-        else if (type == InfoToggle.LOOKING_AT_EFFECTS)
-        {
-            InfoLine parser = type.initParser();
-
-            if (parser != null)
-            {
-                Pair<Entity, NbtCompound> pair = this.getTargetEntity(world, mc);
-
-                if (pair != null)
-                {
-                    InfoLineContext ctx = new InfoLineContext(world, pair.getLeft(), null, null, null, null, pair.getRight());
-                    this.processEntries(parser.parse(ctx));
-
-                    if (parser.succeededType())
-                    {
-                        this.addedTypes.add(type);
-                    }
-                }
-                else
-                {
-                    return;
-                }
-            }
-            else
-            {
-                return;
-            }
-        }
-        else if (type == InfoToggle.ZOMBIE_CONVERSION)
-        {
-            InfoLine parser = type.initParser();
-
-            if (parser != null)
-            {
-                Pair<Entity, NbtCompound> pair = this.getTargetEntity(world, mc);
-
-                if (pair != null)
-                {
-                    InfoLineContext ctx = new InfoLineContext(world, pair.getLeft(), null, null, null, null, pair.getRight());
-                    this.processEntries(parser.parse(ctx));
-
-                    if (parser.succeededType())
-                    {
-                        this.addedTypes.add(type);
-                    }
-                }
-                else
-                {
-                    return;
-                }
-            }
-            else
-            {
-                return;
-            }
-        }
-        else if (type == InfoToggle.DOLPHIN_TREASURE)
-        {
-            InfoLine parser = type.initParser();
-
-            if (parser != null)
-            {
-                Pair<Entity, NbtCompound> pair = this.getTargetEntity(world, mc);
-
-                if (pair != null)
-                {
-                    InfoLineContext ctx = new InfoLineContext(world, pair.getLeft(), null, null, null, null, pair.getRight());
-                    this.processEntries(parser.parse(ctx));
-
-                    if (parser.succeededType())
-                    {
-                        this.addedTypes.add(type);
-                    }
-                }
-                else
-                {
-                    return;
-                }
-            }
-            else
-            {
-                return;
             }
         }
         else if (type == InfoToggle.ENTITY_REG_NAME)
         {
-            InfoLine parser = type.initParser();
-
-            if (parser != null)
+            if (mc.crosshairTarget != null && mc.crosshairTarget.getType() == HitResult.Type.ENTITY)
             {
-                Pair<Entity, NbtCompound> pair = this.getTargetEntity(world, mc);
+                Entity lookedEntity = ((EntityHitResult) mc.crosshairTarget).getEntity();
+                Identifier regName = EntityType.getId(lookedEntity.getType());
 
-                if (pair != null)
+                if (regName != null)
                 {
-                    InfoLineContext ctx = new InfoLineContext(world, pair.getLeft(), null, null, null, null, pair.getRight());
-                    this.processEntries(parser.parse(ctx));
-
-                    if (parser.succeededType())
-                    {
-                        this.addedTypes.add(type);
-                    }
+                    this.addLine(String.format("Entity reg name: %s", regName.toString()));
                 }
-                else
-                {
-                    return;
-                }
-            }
-            else
-            {
-                return;
-            }
-        }
-        else if (type == InfoToggle.PLAYER_EXPERIENCE)
-        {
-            InfoLine parser = type.initParser();
-
-            if (parser != null && mc.player != null)
-            {
-                InfoLineContext ctx = new InfoLineContext(world, mc.player, null, null, null, null, null);
-                this.processEntries(parser.parse(ctx));
-            }
-            else
-            {
-                return;
-            }
-        }
-        else if (type == InfoToggle.LOOKING_AT_PLAYER_EXP)
-        {
-            InfoLine parser = type.initParser();
-
-            if (parser != null)
-            {
-                Pair<Entity, NbtCompound> pair = this.getTargetEntity(world, mc);
-
-                if (pair != null)
-                {
-                    InfoLineContext ctx = new InfoLineContext(world, pair.getLeft(), null, null, null, null, pair.getRight());
-                    this.processEntries(parser.parse(ctx));
-
-                    if (parser.succeededType())
-                    {
-                        this.addedTypes.add(type);
-                    }
-                }
-                else
-                {
-                    return;
-                }
-            }
-            else
-            {
-                return;
             }
         }
         else if (type == InfoToggle.LOOKING_AT_BLOCK ||
                  type == InfoToggle.LOOKING_AT_BLOCK_CHUNK)
         {
-            if (this.addedTypes.contains(type))
+            // Don't add the same line multiple times
+            if (this.addedTypes.contains(InfoToggle.LOOKING_AT_BLOCK) ||
+                this.addedTypes.contains(InfoToggle.LOOKING_AT_BLOCK_CHUNK))
             {
                 return;
             }
 
-            // Make into a generic call
-            World bestWorld = WorldUtils.getBestWorld(mc);
-            InfoLine parser = type.initParser();
-
-            if (parser != null)
+            if (mc.crosshairTarget != null && mc.crosshairTarget.getType() == HitResult.Type.BLOCK)
             {
-                BlockState state = this.getTargetedBlock(mc);
+                BlockPos lookPos = ((BlockHitResult) mc.crosshairTarget).getBlockPos();
+                String pre = "";
+                StringBuilder str = new StringBuilder(128);
 
-                if (state != null)
+                if (InfoToggle.LOOKING_AT_BLOCK.getBooleanValue())
                 {
-                    BlockPos lookPos = ((BlockHitResult) mc.crosshairTarget).getBlockPos();
-                    InfoLineContext ctx = new InfoLineContext(bestWorld, null, null, lookPos, state, null, null);
-                    this.processEntries(parser.parse(ctx));
+                    str.append(String.format("Looking at block: %d, %d, %d", lookPos.getX(), lookPos.getY(), lookPos.getZ()));
+                    pre = " // ";
+                }
 
-                    if (parser.succeededType())
-                    {
-                        this.addedTypes.add(type);
-                    }
-                }
-                else
+                if (InfoToggle.LOOKING_AT_BLOCK_CHUNK.getBooleanValue())
                 {
-                    return;
+                    str.append(pre).append(String.format("Block: %d, %d, %d in Sub-Chunk: %d, %d, %d",
+                            lookPos.getX() & 0xF, lookPos.getY() & 0xF, lookPos.getZ() & 0xF,
+                            lookPos.getX() >> 4, lookPos.getY() >> 4, lookPos.getZ() >> 4));
                 }
-            }
-            else
-            {
-                return;
+
+                this.addLine(str.toString());
+
+                this.addedTypes.add(InfoToggle.LOOKING_AT_BLOCK);
+                this.addedTypes.add(InfoToggle.LOOKING_AT_BLOCK_CHUNK);
             }
         }
         else if (type == InfoToggle.BLOCK_PROPS)
         {
-            if (this.addedTypes.contains(type))
-            {
-                return;
-            }
-
-            // Make into a generic call
-            World bestWorld = WorldUtils.getBestWorld(mc);
-            InfoLine parser = type.initParser();
-
-            if (parser != null)
-            {
-                BlockState state = this.getTargetedBlock(mc);
-
-                if (state != null)
-                {
-                    BlockPos lookPos = ((BlockHitResult) mc.crosshairTarget).getBlockPos();
-                    InfoLineContext ctx = new InfoLineContext(bestWorld, null, null, lookPos, state, null, null);
-                    this.processEntries(parser.parse(ctx));
-
-                    if (parser.succeededType())
-                    {
-                        this.addedTypes.add(type);
-                    }
-                }
-                else
-                {
-                    return;
-                }
-            }
-            else
-            {
-                return;
-            }
+            this.getBlockProperties(mc);
         }
-    }
-
-    private boolean isEntityDataValid(@Nonnull NbtCompound nbt)
-    {
-        // Has a valid Inventory = ServerWorld
-        if (InventoryUtils.hasNbtItems(nbt))
-        {
-            return true;
-        }
-
-        //System.out.printf("isEntityDataValid(): nbt: [%s]\n", nbt.toString());
-
-        for (String key : nbt.getKeys())
-        {
-            switch (key)
-            {
-                // If `Fire == 0` instead of `-1` means it's ClientWorld; it's ridiculous, but it works.
-                case NbtKeys.FIRE ->
-                {
-                    int fire = nbt.getShort(NbtKeys.FIRE);
-
-                    if (fire < 0 || fire > 0)
-                    {
-                        return true;
-                    }
-                }
-                // If `Age == -1 or 1 instead of 0 or > 1 it's ClientWorld; it's ridiculous, but it works.
-                case NbtKeys.AGE ->
-                {
-                    int age = nbt.getInt(NbtKeys.AGE);
-
-                    if (age == 0 || age > 1)
-                    {
-                        return true;
-                    }
-                }
-                // Has a Brain besides the default = ServerWorld
-                case NbtKeys.BRAIN ->
-                {
-                    NbtCompound tag = nbt.getCompound(NbtKeys.BRAIN);
-
-                    if (!tag.isEmpty() && !tag.getCompound(NbtKeys.MEMORIES).isEmpty())
-                    {
-                        return true;
-                    }
-                }
-                case NbtKeys.OFFERS -> { return true; }
-                case NbtKeys.TRADE_RECIPES -> { return true; }
-                case NbtKeys.ZOMBIE_CONVERSION ->
-                {
-                    if (nbt.getInt(NbtKeys.ZOMBIE_CONVERSION) > 0)
-                    {
-                        return true;
-                    }
-                }
-                case NbtKeys.DROWNED_CONVERSION ->
-                {
-                    if (nbt.getInt(NbtKeys.DROWNED_CONVERSION) > 0)
-                    {
-                        return true;
-                    }
-                }
-                case NbtKeys.STRAY_CONVERSION ->
-                {
-                    if (nbt.getInt(NbtKeys.STRAY_CONVERSION) > 0)
-                    {
-                        return true;
-                    }
-                }
-                case NbtKeys.CONVERSION_PLAYER -> { return true; }
-                case NbtKeys.RECIPE_BOOK -> { return true; }
-                case NbtKeys.RECIPES -> { return true; }
-                case NbtKeys.SADDLE -> { return true; }
-                case NbtKeys.EFFECTS -> { return true; }
-            }
-        }
-
-        return false;
     }
 
     @Nullable
-    public Pair<Entity, NbtCompound> getTargetEntity(World world, MinecraftClient mc)
-    {
-        if (mc.crosshairTarget != null && mc.crosshairTarget.getType() == HitResult.Type.ENTITY)
-        {
-            Entity lookedEntity = ((EntityHitResult) mc.crosshairTarget).getEntity();
-            World bestWorld = WorldUtils.getBestWorld(mc);
-            Pair<Entity, NbtCompound> pair = null;
-
-            if (bestWorld instanceof ServerWorld serverWorld)
-            {
-                Entity serverEntity = serverWorld.getEntityById(lookedEntity.getId());
-                NbtCompound nbt = new NbtCompound();
-                serverEntity.saveSelfNbt(nbt);
-                pair = Pair.of(serverEntity, nbt);
-            }
-            else
-            {
-                pair = EntitiesDataManager.getInstance().requestEntity(world, lookedEntity.getId());
-            }
-
-            // Remember the last entity so the "refresh time" is smoothed over.
-            if (pair == null && this.lastEntity != null &&
-                this.lastEntity.getLeft().getId() == lookedEntity.getId())
-            {
-                pair = this.lastEntity;
-            }
-            else if (pair != null && pair.getRight() != null &&
-                    !pair.getRight().isEmpty() &&
-                     this.isEntityDataValid(pair.getRight()))
-            {
-                this.lastEntity = pair;
-            }
-            else if (this.lastEntity != null &&
-                    this.lastEntity.getLeft().getId() == lookedEntity.getId())
-            {
-                pair = this.lastEntity;
-            }
-
-            return pair;
-        }
-
-        return null;
-    }
-
-    @Nullable
-    public Pair<BlockEntity, NbtCompound> getTargetedBlockEntity(World world, MinecraftClient mc)
+    private BlockEntity getTargetedBlockEntity(World world, MinecraftClient mc)
     {
         if (mc.crosshairTarget != null && mc.crosshairTarget.getType() == HitResult.Type.BLOCK)
         {
             BlockPos posLooking = ((BlockHitResult) mc.crosshairTarget).getBlockPos();
-            World bestWorld = WorldUtils.getBestWorld(mc);
-            BlockState state = bestWorld.getBlockState(posLooking);
-            Pair<BlockEntity, NbtCompound> pair = null;
+            WorldChunk chunk = this.getChunk(new ChunkPos(posLooking));
 
-            if (state.getBlock() instanceof BlockEntityProvider)
-            {
-                if (bestWorld instanceof ServerWorld)
-                {
-                    NbtCompound nbt = new NbtCompound();
-                    BlockEntity be = bestWorld.getWorldChunk(posLooking).getBlockEntity(posLooking);
-                    pair = Pair.of(be, be != null ? be.createNbtWithIdentifyingData(bestWorld.getRegistryManager()) : nbt);
-                }
-                else
-                {
-                    pair = EntitiesDataManager.getInstance().requestBlockEntity(world, posLooking);
-                }
-
-                // Remember the last entity so the "refresh time" is smoothed over.
-                if (pair == null && this.lastBlockEntity != null &&
-                    this.lastBlockEntity.getLeft().getPos().equals(posLooking))
-                {
-                    pair = this.lastBlockEntity;
-                }
-                else if (pair != null)
-                {
-                    this.lastBlockEntity = pair;
-                }
-
-                return pair;
-            }
-        }
-
-        return null;
-    }
-
-    @Nullable
-    public Pair<BlockEntity, NbtCompound> requestBlockEntityAt(World world, BlockPos pos)
-    {
-        if (!(world instanceof ServerWorld))
-        {
-            Pair<BlockEntity, NbtCompound> pair = EntitiesDataManager.getInstance().requestBlockEntity(world, pos);
-
-            BlockState state = world.getBlockState(pos);
-
-            if (state.getBlock() instanceof ChestBlock)
-            {
-                ChestType type = state.get(ChestBlock.CHEST_TYPE);
-
-                if (type != ChestType.SINGLE)
-                {
-                    return EntitiesDataManager.getInstance().requestBlockEntity(world, pos.offset(ChestBlock.getFacing(state)));
-                }
-            }
-
-            return pair;
+            // The method in World now checks that the caller is from the same thread...
+            return chunk != null ? chunk.getBlockEntity(posLooking) : null;
         }
 
         return null;
@@ -1829,77 +987,60 @@ public class RenderHandler implements IRenderer
         }
     }
 
-    // # Moved to InfoLineChunkCache
-//    @Nullable
-//    private WorldChunk getChunk(ChunkPos chunkPos)
-//    {
-//        CompletableFuture<OptionalChunk<Chunk>> future = this.chunkFutures.get(chunkPos);
-//
-//        if (future == null)
-//        {
-//            future = this.setupChunkFuture(chunkPos);
-//        }
-//
-//        OptionalChunk<Chunk> chunkResult = future.getNow(null);
-//        if (chunkResult == null)
-//        {
-//            return null;
-//        }
-//        else
-//        {
-//            Chunk chunk = chunkResult.orElse(null);
-//            if (chunk instanceof WorldChunk)
-//            {
-//                return (WorldChunk) chunk;
-//            }
-//            else
-//            {
-//                return null;
-//            }
-//        }
-//    }
+    @Nullable
+    private WorldChunk getChunk(ChunkPos chunkPos)
+    {
+        CompletableFuture<WorldChunk> future = this.chunkFutures.get(chunkPos);
 
-//    private CompletableFuture<OptionalChunk<Chunk>> setupChunkFuture(ChunkPos chunkPos)
-//    {
-//        IntegratedServer server = this.getDataStorage().getIntegratedServer();
-//        CompletableFuture<OptionalChunk<Chunk>> future = null;
-//
-//        if (server != null)
-//        {
-//            ServerWorld world = server.getWorld(this.mc.world.getRegistryKey());
-//
-//            if (world != null)
-//            {
-//                future = world.getChunkManager().getChunkFutureSyncOnMainThread(chunkPos.x, chunkPos.z, ChunkStatus.FULL, false)
-//                        .thenApply((either) -> either.map((chunk) -> (WorldChunk) chunk) );
-//            }
-//        }
-//
-//        if (future == null)
-//        {
-//            future = CompletableFuture.completedFuture(OptionalChunk.of(this.getClientChunk(chunkPos)));
-//        }
-//
-//        this.chunkFutures.put(chunkPos, future);
-//
-//        return future;
-//    }
+        if (future == null)
+        {
+            future = this.setupChunkFuture(chunkPos);
+        }
 
-//    private WorldChunk getClientChunk(ChunkPos chunkPos)
-//    {
-//        if (this.cachedClientChunk == null || this.cachedClientChunk.getPos().equals(chunkPos) == false)
-//        {
-//            this.cachedClientChunk = this.mc.world.getChunk(chunkPos.x, chunkPos.z);
-//        }
-//
-//        return this.cachedClientChunk;
-//    }
+        return future.getNow(null);
+    }
 
-//    private void resetCachedChunks()
-//    {
-//        this.chunkFutures.clear();
-//        this.cachedClientChunk = null;
-//    }
+    private CompletableFuture<WorldChunk> setupChunkFuture(ChunkPos chunkPos)
+    {
+        IntegratedServer server = this.mc.getServer();
+        CompletableFuture<WorldChunk> future = null;
+
+        if (server != null)
+        {
+            ServerWorld world = server.getWorld(this.mc.world.getRegistryKey());
+
+            if (world != null)
+            {
+                future = world.getChunkManager().getChunkFutureSyncOnMainThread(chunkPos.x, chunkPos.z, ChunkStatus.FULL, false)
+                        .thenApply((either) -> either.map((chunk) -> (WorldChunk) chunk, (unloaded) -> null) );
+            }
+        }
+
+        if (future == null)
+        {
+            future = CompletableFuture.completedFuture(this.getClientChunk(chunkPos));
+        }
+
+        this.chunkFutures.put(chunkPos, future);
+
+        return future;
+    }
+
+    private WorldChunk getClientChunk(ChunkPos chunkPos)
+    {
+        if (this.cachedClientChunk == null || this.cachedClientChunk.getPos().equals(chunkPos) == false)
+        {
+            this.cachedClientChunk = this.mc.world.getChunk(chunkPos.x, chunkPos.z);
+        }
+
+        return this.cachedClientChunk;
+    }
+
+    private void resetCachedChunks()
+    {
+        this.chunkFutures.clear();
+        this.cachedClientChunk = null;
+    }
 
     private class StringHolder implements Comparable<StringHolder>
     {
@@ -1937,7 +1078,7 @@ public class RenderHandler implements IRenderer
         }
 
         @Override
-        public int compareTo(@Nonnull LinePos other)
+        public int compareTo(LinePos other)
         {
             if (this.position < 0)
             {

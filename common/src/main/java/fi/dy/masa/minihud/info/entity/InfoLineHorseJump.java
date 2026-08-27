@@ -132,7 +132,7 @@ public class InfoLineHorseJump extends InfoLine
         if (ent instanceof AbstractHorseEntity horse)
         {
             String horseType = horse.getType().getName().getString();
-            double jump = horse.getAttributeValue(EntityAttributes.GENERIC_JUMP_STRENGTH);
+            double jump = horse.getAttributeValue(EntityAttributes.HORSE_JUMP_STRENGTH);
 
             if (jump > 0d)
             {

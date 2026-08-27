@@ -1,104 +1,103 @@
 package fi.dy.masa.minihud.util;
 
-import java.util.ArrayList;
 import java.util.Collection;
 import java.util.Map;
-import java.util.Objects;
 import java.util.concurrent.PriorityBlockingQueue;
 import java.util.concurrent.ThreadFactory;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
-import javax.annotation.Nullable;
 import com.google.common.collect.ArrayListMultimap;
 import com.google.common.collect.Queues;
 import com.google.common.util.concurrent.ThreadFactoryBuilder;
 import com.google.gson.JsonObject;
-
+import com.google.gson.JsonPrimitive;
 import net.minecraft.client.MinecraftClient;
 import net.minecraft.entity.Entity;
 import net.minecraft.nbt.NbtCompound;
 import net.minecraft.nbt.NbtList;
-import net.minecraft.registry.DynamicRegistryManager;
 import net.minecraft.registry.RegistryKey;
 import net.minecraft.registry.RegistryKeys;
 import net.minecraft.server.MinecraftServer;
 import net.minecraft.server.ServerTask;
-import net.minecraft.server.integrated.IntegratedServer;
 import net.minecraft.server.world.ServerWorld;
 import net.minecraft.structure.StructureStart;
+import net.minecraft.text.LiteralTextContent;
 import net.minecraft.text.MutableText;
-import net.minecraft.text.PlainTextContent;
 import net.minecraft.text.Text;
 import net.minecraft.text.TranslatableTextContent;
 import net.minecraft.util.Formatting;
 import net.minecraft.util.Identifier;
 import net.minecraft.util.math.BlockPos;
 import net.minecraft.util.math.ChunkPos;
+import net.minecraft.util.math.MathHelper;
 import net.minecraft.util.math.Vec3d;
 import net.minecraft.util.math.Vec3i;
 import net.minecraft.world.World;
 import net.minecraft.world.chunk.Chunk;
 import net.minecraft.world.chunk.ChunkStatus;
 import net.minecraft.world.gen.structure.Structure;
-
-import fi.dy.masa.malilib.gui.GuiBase;
-import fi.dy.masa.malilib.network.ClientPlayHandler;
-import fi.dy.masa.malilib.network.IPluginClientPlayHandler;
-import fi.dy.masa.malilib.util.*;
-import fi.dy.masa.malilib.util.data.Constants;
+import fi.dy.masa.malilib.network.ClientPacketChannelHandler;
+import fi.dy.masa.malilib.util.Constants;
+import fi.dy.masa.malilib.util.InfoUtils;
+import fi.dy.masa.malilib.util.JsonUtils;
+import fi.dy.masa.malilib.util.PositionUtils;
 import fi.dy.masa.minihud.MiniHUD;
-import fi.dy.masa.minihud.Reference;
+import fi.dy.masa.minihud.config.Configs;
 import fi.dy.masa.minihud.config.RendererToggle;
-import fi.dy.masa.minihud.data.HudDataManager;
 import fi.dy.masa.minihud.data.MobCapDataHandler;
 import fi.dy.masa.minihud.data.ServuxTickData;
-import fi.dy.masa.minihud.mixin.client.IMixinOptions;
-import fi.dy.masa.minihud.mixin.server.IMixinMinecraftServer;
-import fi.dy.masa.minihud.network.ServuxStructuresHandler;
-import fi.dy.masa.minihud.network.ServuxStructuresPacket;
-import fi.dy.masa.minihud.renderer.*;
+import fi.dy.masa.minihud.network.StructurePacketHandlerCarpet;
+import fi.dy.masa.minihud.network.StructurePacketHandlerServux;
+import fi.dy.masa.minihud.renderer.OverlayRendererBeaconRange;
+import fi.dy.masa.minihud.renderer.OverlayRendererBiomeBorders;
+import fi.dy.masa.minihud.renderer.OverlayRendererConduitRange;
+import fi.dy.masa.minihud.renderer.OverlayRendererLightLevel;
+import fi.dy.masa.minihud.renderer.OverlayRendererSpawnableColumnHeights;
 import fi.dy.masa.minihud.renderer.shapes.ShapeManager;
 import fi.dy.masa.minihud.renderer.worker.ChunkTask;
 import fi.dy.masa.minihud.renderer.worker.ThreadWorker;
+import fi.dy.masa.minihud.util.MiscUtils;
 
 public class DataStorage
 {
     private static final ThreadFactory THREAD_FACTORY = (new ThreadFactoryBuilder()).setNameFormat("MiniHUD Worker Thread %d").setDaemon(true).build();
     private static final Pattern PATTERN_CARPET_TPS = Pattern.compile("TPS: (?<tps>[0-9]+[\\.,][0-9]) MSPT: (?<mspt>[0-9]+[\\.,][0-9])");
 
-    private static final DataStorage INSTANCE = new DataStorage();
+    public static final DataStorage INSTANCE = new DataStorage();
+
+    public static final int CARPET_ID_BOUNDINGBOX_MARKERS = 3;
+    public static final int CARPET_ID_LARGE_BOUNDINGBOX_MARKERS_START = 7;
+    public static final int CARPET_ID_LARGE_BOUNDINGBOX_MARKERS = 8;
+
     private final MobCapDataHandler mobCapData = new MobCapDataHandler();
-    private final static ServuxStructuresHandler<ServuxStructuresPacket.Payload> HANDLER = ServuxStructuresHandler.getInstance();
-    private boolean carpetServer = false;
-    private boolean servuxServer = false;
-    private boolean hasServuxTickData = false;
-    private boolean hasInValidServux = false;
-    private boolean hasIntegratedServer = false;
-    private int simulationDistance = -1;
-    private int structureDataTimeout = 30 * 20;
+    private boolean worldSeedValid;
     private boolean serverTPSValid;
     private boolean hasSyncedTime;
+    private boolean carpetServer;
+    private boolean servuxServer;
     private String servuxVersion;
-    private int servuxTimeout;
+    private boolean hasIntegratedServer;
+    private boolean worldSpawnValid;
     private boolean hasStructureDataFromServer;
     private boolean structureRendererNeedsUpdate;
     private boolean structuresNeedUpdating;
     private boolean shouldRegisterStructureChannel;
+    private int structureDataTimeout = 30 * 20;
+    private long worldSeed;
     private long lastServerTick;
     private long lastServerTimeUpdate;
     private BlockPos lastStructureUpdatePos;
     private double serverTPS;
     private double serverMSPT;
+    private BlockPos worldSpawn = BlockPos.ORIGIN;
     private Vec3d distanceReferencePoint = Vec3d.ZERO;
     private final int[] blockBreakCounter = new int[100];
     private final ArrayListMultimap<StructureType, StructureData> structures = ArrayListMultimap.create();
     private final MinecraftClient mc = MinecraftClient.getInstance();
-    private IntegratedServer integratedServer;
-    private DynamicRegistryManager registryManager = DynamicRegistryManager.EMPTY;
+
     private final PriorityBlockingQueue<ChunkTask> taskQueue = Queues.newPriorityBlockingQueue();
     private final Thread workerThread;
     private final ThreadWorker worker;
-    private ServuxTickData servuxTickData;
 
     private DataStorage()
     {
@@ -111,16 +110,6 @@ public class DataStorage
     {
         return INSTANCE;
     }
-
-    public void onGameInit()
-    {
-        ClientPlayHandler.getInstance().registerClientPlayHandler(HANDLER);
-        HANDLER.registerPlayPayload(ServuxStructuresPacket.Payload.ID, ServuxStructuresPacket.Payload.CODEC, IPluginClientPlayHandler.BOTH_CLIENT);
-    }
-
-    public Identifier getNetworkChannel() { return ServuxStructuresHandler.CHANNEL_ID; }
-
-    public IPluginClientPlayHandler<ServuxStructuresPacket.Payload> getNetworkHandler() { return HANDLER; }
 
     public MobCapDataHandler getMobCapData()
     {
@@ -142,19 +131,9 @@ public class DataStorage
             }
             catch (InterruptedException e)
             {
-                MiniHUD.logger.warn("Interrupted whilst waiting for worker thread to die", e);
+                MiniHUD.LOGGER.warn("Interrupted whilst waiting for worker thread to die", e);
             }
             */
-            HANDLER.reset(this.getNetworkChannel());
-            HANDLER.resetFailures(this.getNetworkChannel());
-
-            this.servuxServer = false;
-            this.hasInValidServux = false;
-            this.structureDataTimeout = 30 * 20;
-            this.registryManager = DynamicRegistryManager.EMPTY;
-            this.carpetServer = false;
-            this.hasServuxTickData = false;
-            this.setHasIntegratedServer(false, null);
         }
         else
         {
@@ -164,21 +143,36 @@ public class DataStorage
         this.mobCapData.clear();
         this.serverTPSValid = false;
         this.hasSyncedTime = false;
-        this.servuxTickData = null;
+        this.carpetServer = false;
+        this.worldSpawnValid = false;
         this.structuresNeedUpdating = true;
         this.hasStructureDataFromServer = false;
         this.structureRendererNeedsUpdate = true;
 
         this.lastStructureUpdatePos = null;
         this.structures.clear();
+        this.worldSpawn = BlockPos.ORIGIN;
         this.clearTasks();
-        this.servuxTimeout = -1;
 
+        StructurePacketHandlerCarpet.INSTANCE.reset();
+        StructurePacketHandlerServux.INSTANCE.reset();
         ShapeManager.INSTANCE.clear();
-        OverlayRendererBeaconRange.INSTANCE.reset();
-        OverlayRendererConduitRange.INSTANCE.reset();
-        OverlayRendererBiomeBorders.INSTANCE.reset();
-        OverlayRendererLightLevel.INSTANCE.reset();
+        OverlayRendererBeaconRange.INSTANCE.clear();
+        OverlayRendererConduitRange.INSTANCE.clear();
+        OverlayRendererBiomeBorders.INSTANCE.clear();
+        OverlayRendererLightLevel.reset();
+
+        if (isLogout || Configs.Generic.DONT_RESET_SEED_ON_DIMENSION_CHANGE.getBooleanValue() == false)
+        {
+            this.worldSeedValid = false;
+            this.worldSeed = 0;
+        }
+
+        if (isLogout)
+        {
+            this.servuxServer = false;
+            this.structureDataTimeout = 30 * 20;
+        }
     }
 
     public void clearTasks()
@@ -201,64 +195,9 @@ public class DataStorage
 
     public void setIsServuxServer()
     {
+        MiniHUD.debugLog("DataStorage#setIsServuxServer()");
         this.servuxServer = true;
-        if (this.hasInValidServux)
-        {
-            this.hasInValidServux = false;
-        }
-    }
-
-    public void setServuxVersion(String ver)
-    {
-        if (ver != null && ver.isEmpty() == false)
-        {
-            this.servuxVersion = ver;
-        }
-        else
-        {
-            this.servuxVersion = "unknown";
-        }
-    }
-
-    public String getServuxVersion()
-    {
-        if (this.hasServuxServer())
-        {
-            return this.servuxVersion;
-        }
-
-        return "not_connected";
-    }
-
-    public boolean hasIntegratedServer() { return this.hasIntegratedServer; }
-
-    public void setHasIntegratedServer(boolean toggle, @Nullable IntegratedServer server)
-    {
-        this.hasIntegratedServer = toggle;
-        this.integratedServer = server;
-    }
-
-    public IntegratedServer getIntegratedServer()
-    {
-        return this.integratedServer;
-    }
-
-    public boolean isSinglePlayer()
-    {
-        if (this.mc != null)
-        {
-            return this.mc.isInSingleplayer();
-        }
-
-        return false;
-    }
-
-    public void onWorldPre()
-    {
-        if (this.hasIntegratedServer == false)
-        {
-            HANDLER.registerPlayReceiver(ServuxStructuresPacket.Payload.ID, HANDLER);
-        }
+        ClientPacketChannelHandler.getInstance().unregisterClientChannelHandler(StructurePacketHandlerCarpet.INSTANCE);
     }
 
     public void onWorldJoin()
@@ -266,85 +205,78 @@ public class DataStorage
         MiniHUD.debugLog("DataStorage#onWorldJoin()");
         OverlayRendererBeaconRange.INSTANCE.setNeedsUpdate();
         OverlayRendererConduitRange.INSTANCE.setNeedsUpdate();
-        OverlayRendererSpawnChunks.INSTANCE_REAL.setNeedsUpdate();
-        OverlayRendererSpawnChunks.INSTANCE_PLAYER.setNeedsUpdate();
 
-        if (this.hasIntegratedServer == false)
+        if (this.mc.isIntegratedServerRunning() == false && RendererToggle.OVERLAY_STRUCTURE_MAIN_TOGGLE.getBooleanValue())
         {
-            // We don't always receive the initial metadata packet,
-            // so we must send either a register or unregister packet to be sure.
-            if (RendererToggle.OVERLAY_STRUCTURE_MAIN_TOGGLE.getBooleanValue())
+            this.shouldRegisterStructureChannel = true;
+        }
+    }
+
+    public void setWorldSeed(long seed)
+    {
+        this.worldSeed = seed;
+        this.worldSeedValid = true;
+    }
+
+    public void setWorldSpawn(BlockPos spawn)
+    {
+        this.worldSpawn = spawn;
+        this.worldSpawnValid = true;
+    }
+
+    public void setWorldSpawnIfUnknown(BlockPos spawn)
+    {
+        if (this.worldSpawnValid == false)
+        {
+            this.setWorldSpawn(spawn);
+        }
+    }
+
+    public boolean isWorldSeedKnown(World world)
+    {
+        if (this.worldSeedValid)
+        {
+            return true;
+        }
+        else if (this.mc.isIntegratedServerRunning())
+        {
+            MinecraftServer server = this.mc.getServer();
+            World worldTmp = server.getWorld(world.getRegistryKey());
+            return worldTmp != null;
+        }
+
+        return false;
+    }
+
+    public boolean hasStoredWorldSeed()
+    {
+        return this.worldSeedValid;
+    }
+
+    public long getWorldSeed(World world)
+    {
+        if (this.worldSeedValid == false && this.mc.isIntegratedServerRunning())
+        {
+            MinecraftServer server = this.mc.getServer();
+            ServerWorld worldTmp = server.getWorld(world.getRegistryKey());
+
+            if (worldTmp != null)
             {
-                this.registerStructureChannel();
-                this.structuresNeedUpdating = true;
-            }
-            else
-            {
-                this.unregisterStructureChannel();
+                this.setWorldSeed(worldTmp.getSeed());
             }
         }
+
+        return this.worldSeed;
     }
 
-    /**
-     * Store's the world registry manager for Dynamic Lookup for various data
-     * Set this at WorldLoadPost
-     * @param manager ()
-     */
-    public void setWorldRegistryManager(DynamicRegistryManager manager)
+    public boolean isWorldSpawnKnown()
     {
-        if (manager != null && manager != DynamicRegistryManager.EMPTY)
-        {
-            this.registryManager = manager;
-        }
-        else
-        {
-            this.registryManager = DynamicRegistryManager.EMPTY;
-        }
+        return this.worldSpawnValid;
     }
 
-    public DynamicRegistryManager getWorldRegistryManager()
+    public BlockPos getWorldSpawn()
     {
-        if (this.registryManager != DynamicRegistryManager.EMPTY)
-        {
-            return this.registryManager;
-        }
-        else
-        {
-            return DynamicRegistryManager.EMPTY;
-        }
-    }
-
-    public void setSimulationDistance(int distance)
-    {
-        if (distance >= 0)
-        {
-            if (this.simulationDistance != distance)
-            {
-                OverlayRendererSpawnChunks.INSTANCE_REAL.setNeedsUpdate();
-                OverlayRendererSpawnChunks.INSTANCE_PLAYER.setNeedsUpdate();
-            }
-            this.simulationDistance = distance;
-            //MiniHUD.printDebug("DataStorage#setSimulationDistance(): set to: [{}]", distance);
-        }
-        else
-        {
-            this.simulationDistance = -1;
-        }
-    }
-
-    public boolean isSimulationDistanceKnown()
-    {
-        return this.simulationDistance >= 0;
-    }
-
-    public int getSimulationDistance()
-    {
-        if (this.simulationDistance > 0)
-        {
-            return this.simulationDistance;
-        }
-
-        return 10;
+        return this.worldSpawn;
     }
 
     public boolean hasTPSData()
@@ -352,12 +284,10 @@ public class DataStorage
         return this.serverTPSValid;
     }
 
-    public boolean hasCarpetServer()
+    public boolean isCarpetServer()
     {
         return this.carpetServer;
     }
-
-    public boolean hasServuxServer() { return this.servuxServer; }
 
     public double getServerTPS()
     {
@@ -407,8 +337,8 @@ public class DataStorage
 
             if (Math.abs(pos.x - (chunkX << 4) - 8) <= 48D || Math.abs(pos.z - (chunkZ << 4) - 8) <= 48D)
             {
-                OverlayRendererSpawnableColumnHeights.INSTANCE.markChunkChanged(chunkX, chunkZ);
-                OverlayRendererLightLevel.INSTANCE.setNeedsUpdate();
+                OverlayRendererSpawnableColumnHeights.markChunkChanged(chunkX, chunkZ);
+                OverlayRendererLightLevel.setNeedsUpdate();
             }
         }
     }
@@ -440,17 +370,14 @@ public class DataStorage
     {
         String[] parts = message.split(" ");
 
-        if (parts.length > 0 &&
-            (parts[0].equals("minihud-seed") ||
-             parts[0].equals("#minihud-seed") ||
-             parts[0].equals("/minihud-seed")))
+        if (parts.length > 0 && (parts[0].equals("minihud-seed") || parts[0].equals("/minihud-seed")))
         {
             if (parts.length == 2)
             {
                 try
                 {
-                    HudDataManager.getInstance().setWorldSeed(Long.parseLong(parts[1]));
-                    InfoUtils.printActionbarMessage("minihud.message.seed_set", HudDataManager.getInstance().worldSeed());
+                    this.setWorldSeed(Long.parseLong(parts[1]));
+                    InfoUtils.printActionbarMessage("minihud.message.seed_set", this.worldSeed);
                 }
                 catch (NumberFormatException e)
                 {
@@ -459,54 +386,13 @@ public class DataStorage
             }
             else if (parts.length == 1)
             {
-                if (HudDataManager.getInstance().hasStoredWorldSeed())
+                if (this.worldSeedValid)
                 {
-                    InfoUtils.printActionbarMessage("minihud.message.seed_is", HudDataManager.getInstance().worldSeed());
+                    InfoUtils.printActionbarMessage("minihud.message.seed_is", this.worldSeed);
                 }
                 else
                 {
                     InfoUtils.printActionbarMessage("minihud.message.no_seed");
-                }
-            }
-
-            return true;
-        }
-        else if (parts.length > 0 &&
-                (parts[0].equals("minihud-spawnchunkradius") ||
-                 parts[0].equals("#minihud-spawnchunkradius") ||
-                 parts[0].equals("/minihud-spawnchunkradius")))
-        {
-            if (parts.length == 2)
-            {
-                try
-                {
-                    int radius = Integer.parseInt(parts[1]);
-
-                    if (radius >= 0 && radius <= 32)
-                    {
-                        HudDataManager.getInstance().setSpawnChunkRadius(radius, true);
-                    }
-                    else
-                    {
-                        InfoUtils.printActionbarMessage("minihud.message.error.invalid_spawn_chunk_radius");
-                    }
-                }
-                catch (NumberFormatException e)
-                {
-                    InfoUtils.printActionbarMessage("minihud.message.error.invalid_spawn_chunk_radius");
-                }
-            }
-            else if (parts.length == 1)
-            {
-                if (HudDataManager.getInstance().isSpawnChunkRadiusKnown())
-                {
-                    int radius = HudDataManager.getInstance().getSpawnChunkRadius();
-                    String strRadius = radius > 0 ? GuiBase.TXT_GREEN + String.format("%d", radius) + GuiBase.TXT_RST : GuiBase.TXT_RED + String.format("%d", radius) + GuiBase.TXT_RST;
-                    InfoUtils.printActionbarMessage(StringUtils.translate("minihud.message.spawn_chunk_radius_is", strRadius));
-                }
-                else
-                {
-                    InfoUtils.printActionbarMessage("minihud.message.no_spawn_chunk_radius");
                 }
             }
 
@@ -531,15 +417,15 @@ public class DataStorage
                     //int i2 = str.indexOf("]");
                     MutableText m = (MutableText) text.getArgs()[0];
                     TranslatableTextContent t = (TranslatableTextContent) m.getContent();
-                    PlainTextContent.Literal l = (PlainTextContent.Literal) ((MutableText) t.getArgs()[0]).getContent();
+                    LiteralTextContent l = (LiteralTextContent) ((MutableText) t.getArgs()[0]).getContent();
                     String str = l.string();
 
                     //if (i1 != -1 && i2 != -1)
                     {
                         //this.setWorldSeed(Long.parseLong(str.substring(i1 + 1, i2)));
-                        HudDataManager.getInstance().setWorldSeed(Long.parseLong(str));
-                        MiniHUD.LOGGER.info("Received world seed from the vanilla /seed command: {}", HudDataManager.getInstance().worldSeed());
-                        InfoUtils.printActionbarMessage("minihud.message.seed_set", HudDataManager.getInstance().worldSeed());
+                        this.setWorldSeed(Long.parseLong(str));
+                        MiniHUD.LOGGER.info("Received world seed from the vanilla /seed command: {}", this.worldSeed);
+                        InfoUtils.printActionbarMessage("minihud.message.seed_set", this.worldSeed);
                     }
                 }
                 catch (Exception e)
@@ -552,16 +438,16 @@ public class DataStorage
             {
                 try
                 {
-                    HudDataManager.getInstance().setWorldSeed(Long.parseLong(text.getArgs()[1].toString()));
-                    MiniHUD.LOGGER.info("Received world seed from the JED '/jed seed' command: {}", HudDataManager.getInstance().worldSeed());
-                    InfoUtils.printActionbarMessage("minihud.message.seed_set", HudDataManager.getInstance().worldSeed());
+                    this.setWorldSeed(Long.parseLong(text.getArgs()[1].toString()));
+                    MiniHUD.LOGGER.info("Received world seed from the JED '/jed seed' command: {}", this.worldSeed);
+                    InfoUtils.printActionbarMessage("minihud.message.seed_set", this.worldSeed);
                 }
                 catch (Exception e)
                 {
                     MiniHUD.LOGGER.warn("Failed to read the world seed from '{}'", text.getArgs()[1], e);
                 }
             }
-            else if ("commands.setworldspawn.success".equals(text.getKey()) && text.getArgs().length == 4)
+            else if ("commands.setworldspawn.success".equals(text.getKey()) && text.getArgs().length == 3)
             {
                 try
                 {
@@ -570,44 +456,15 @@ public class DataStorage
                     int y = Integer.parseInt(o[1].toString());
                     int z = Integer.parseInt(o[2].toString());
 
-                    BlockPos newSpawn = new BlockPos(x, y, z);
-                    HudDataManager.getInstance().setWorldSpawn(newSpawn);
+                    this.setWorldSpawn(new BlockPos(x, y, z));
 
-                    String spawnStr = String.format("x: %d, y: %d, z: %d", newSpawn.getX(), newSpawn.getY(), newSpawn.getZ());
+                    String spawnStr = String.format("x: %d, y: %d, z: %d", this.worldSpawn.getX(), this.worldSpawn.getY(), this.worldSpawn.getZ());
                     MiniHUD.LOGGER.info("Received world spawn from the vanilla /setworldspawn command: {}", spawnStr);
                     InfoUtils.printActionbarMessage("minihud.message.spawn_set", spawnStr);
                 }
                 catch (Exception e)
                 {
                     MiniHUD.LOGGER.warn("Failed to read the world spawn point from '{}'", text.getArgs(), e);
-                }
-            }
-            else if (("commands.gamerule.set".equals(text.getKey()) || "commands.gamerule.query".equals(text.getKey())) && text.getArgs().length == 2)
-            {
-                try
-                {
-                    Object[] o = text.getArgs();
-                    String rule = o[0].toString();
-                    if (rule.equals("spawnChunkRadius"))
-                    {
-                        int value = Integer.parseInt(o[1].toString());
-
-                        if (HudDataManager.getInstance().getSpawnChunkRadius() != value)
-                        {
-                            MiniHUD.LOGGER.info("Received spawn chunk radius from the vanilla /gamerule command: {}", HudDataManager.getInstance().getSpawnChunkRadius());
-                            HudDataManager.getInstance().setSpawnChunkRadius(value, true);
-                        }
-                        else
-                        {
-                            int radius = HudDataManager.getInstance().getSpawnChunkRadius();
-                            String strRadius = radius > 0 ? GuiBase.TXT_GREEN + String.format("%d", radius) + GuiBase.TXT_RST : GuiBase.TXT_RED + String.format("%d", radius) + GuiBase.TXT_RST;
-                            InfoUtils.printActionbarMessage(StringUtils.translate("minihud.message.spawn_chunk_radius_is", strRadius));
-                        }
-                    }
-                }
-                catch (Exception e)
-                {
-                    MiniHUD.LOGGER.warn("Failed to read the spawn chunk radius from '{}'", text.getArgs(), e);
                 }
             }
         }
@@ -617,9 +474,7 @@ public class DataStorage
     {
         // Carpet server sends the TPS and MSPT values via the player list footer data,
         // and for single player the data is grabbed directly from the integrated server.
-        if (this.carpetServer == false &&
-            this.hasServuxTickData == false &&
-            this.mc.isInSingleplayer() == false)
+        if (this.carpetServer == false && this.mc.isInSingleplayer() == false)
         {
             long currentTime = System.nanoTime();
 
@@ -645,7 +500,7 @@ public class DataStorage
     {
         if (this.mc != null && this.mc.player != null && this.mc.getServer() != null)
         {
-            this.serverMSPT = MiscUtils.longAverage(this.mc.getServer().getTickTimes()) / 1000000D;
+            this.serverMSPT = MiscUtils.longAverage(this.mc.getServer().lastTickLengths) / 1000000D;
             this.serverTPS = this.serverMSPT <= 50 ? 20D : (1000D / this.serverMSPT);
             this.serverTPSValid = true;
         }
@@ -681,65 +536,6 @@ public class DataStorage
         return copy;
     }
 
-    /**
-     * Get all structures withinRange of the player (Helps reduce overhead)
-     * @param pos (Player Position)
-     * @param maxRange (maxChunkRange)
-     * @return (The list)
-     */
-    public ArrayListMultimap<StructureType, StructureData> getCopyOfStructureDataWithinRange(BlockPos pos, int maxRange)
-    {
-        ArrayListMultimap<StructureType, StructureData> copy = ArrayListMultimap.create();
-
-        if (RendererToggle.OVERLAY_STRUCTURE_MAIN_TOGGLE.getBooleanValue() == false)
-        {
-            return copy;
-        }
-
-        synchronized (this.structures)
-        {
-            for (StructureType type : StructureType.VALUES)
-            {
-                Collection<StructureData> values = this.structures.get(type);
-                Collection<StructureData> valuesCopy = new ArrayList<>();
-
-                if (values.isEmpty() == false)
-                {
-                    for (StructureData structure : values)
-                    {
-                        if (MiscUtils.isStructureWithinRange(structure.getBoundingBox(), pos, maxRange))
-                        {
-                            valuesCopy.add(structure);
-                        }
-                    }
-
-                    copy.putAll(type, valuesCopy);
-                }
-            }
-
-            this.structureRendererNeedsUpdate = false;
-        }
-
-        return copy;
-    }
-
-    public int getStructureDataMaxRange()
-    {
-        return this.mc.options.getClampedViewDistance() + 2;
-    }
-
-    public int getServerRenderDistance()
-    {
-        final int range = ((IMixinOptions) this.mc.options).minihud_getServerRenderDistance();
-
-        if (range > 0)
-        {
-            return range;
-        }
-
-        return this.mc.options.getClampedViewDistance();
-    }
-
     public void updateStructureData()
     {
         if (this.mc != null && this.mc.world != null && this.mc.player != null)
@@ -753,12 +549,10 @@ public class DataStorage
                     if (RendererToggle.OVERLAY_STRUCTURE_MAIN_TOGGLE.getBooleanValue())
                     {
                         BlockPos playerPos = PositionUtils.getEntityBlockPos(this.mc.player);
-                        final int maxRange = this.getStructureDataMaxRange();
-                        final int hysteresis = 16;
 
-                        if (this.structuresNeedUpdating(playerPos, hysteresis))
+                        if (this.structuresNeedUpdating(playerPos, 32))
                         {
-                            this.updateStructureDataFromIntegratedServer(playerPos, maxRange);
+                            this.updateStructureDataFromIntegratedServer(playerPos);
                         }
                     }
                 }
@@ -770,8 +564,12 @@ public class DataStorage
                 {
                     if (RendererToggle.OVERLAY_STRUCTURE_MAIN_TOGGLE.getBooleanValue())
                     {
+                        MiniHUD.debugLog("DataStorage#updateStructureData(): Unregister channels");
+                        // (re-)register the structure packet handlers
+                        ClientPacketChannelHandler.getInstance().unregisterClientChannelHandler(StructurePacketHandlerCarpet.INSTANCE);
+                        ClientPacketChannelHandler.getInstance().unregisterClientChannelHandler(StructurePacketHandlerServux.INSTANCE);
+
                         this.registerStructureChannel();
-                        this.structuresNeedUpdating = true;
                     }
 
                     this.shouldRegisterStructureChannel = false;
@@ -782,94 +580,18 @@ public class DataStorage
 
     public void registerStructureChannel()
     {
-        this.shouldRegisterStructureChannel = true;
+        MiniHUD.debugLog("DataStorage#registerStructureChannel(): Servux");
+        ClientPacketChannelHandler.getInstance().registerClientChannelHandler(StructurePacketHandlerServux.INSTANCE);
 
-        if (this.servuxServer == false && this.hasIntegratedServer == false && this.hasInValidServux == false)
+        // Don't register the Carpet structure channel if the server is known to have the Servux mod
+        if (this.servuxServer == false)
         {
-            if (HANDLER.isPlayRegistered(this.getNetworkChannel()))
-            {
-                MiniHUD.debugLog("DataStorage#registerStructureChannel(): sending STRUCTURES_REGISTER to Servux");
-
-                NbtCompound nbt = new NbtCompound();
-                nbt.putString("version", Reference.MOD_STRING);
-
-                HANDLER.encodeStructuresPacket(new ServuxStructuresPacket(ServuxStructuresPacket.Type.PACKET_C2S_STRUCTURES_REGISTER, nbt));
-            }
+            MiniHUD.debugLog("DataStorage#registerStructureChannel(): Carpet");
+            ClientPacketChannelHandler.getInstance().registerClientChannelHandler(StructurePacketHandlerCarpet.INSTANCE);
         }
-        else
-        {
-            this.shouldRegisterStructureChannel = false;
-        }
-        // QuickCarpet doesn't exist for 1.20.5+,
-        // Will re-add if they update it
     }
 
-    public boolean receiveServuxStrucutresMetadata(NbtCompound data)
-    {
-        if (this.servuxServer == false && this.hasIntegratedServer == false &&
-            this.shouldRegisterStructureChannel)
-        {
-            MiniHUD.debugLog("DataStorage#receiveServuxStrucutresMetadata(): received METADATA from Servux");
-
-            if (data.getInt("version") != ServuxStructuresPacket.PROTOCOL_VERSION)
-            {
-                MiniHUD.LOGGER.warn("structureChannel: Mis-matched protocol version!");
-            }
-            this.servuxTimeout = data.getInt("timeout");
-            this.setServuxVersion(data.getString("servux"));
-            if (data.contains("spawnPosX", Constants.NBT.TAG_INT))
-            {
-                HudDataManager.getInstance().setWorldSpawn(new BlockPos(data.getInt("spawnPosX"), data.getInt("spawnPosY"), data.getInt("spawnPosZ")));
-            }
-            if (data.contains("spawnChunkRadius", Constants.NBT.TAG_INT))
-            {
-                HudDataManager.getInstance().setSpawnChunkRadius(data.getInt("spawnChunkRadius"), true);
-            }
-            if (data.contains("worldSeed", Constants.NBT.TAG_LONG))
-            {
-                HudDataManager.getInstance().setWorldSeed(data.getLong("worldSeed"));
-            }
-            this.setIsServuxServer();
-
-            if (RendererToggle.OVERLAY_STRUCTURE_MAIN_TOGGLE.getBooleanValue())
-            {
-                this.registerStructureChannel();
-                return true;
-            }
-            else
-            {
-                this.unregisterStructureChannel();
-            }
-        }
-
-        return false;
-    }
-
-    public void unregisterStructureChannel()
-    {
-        if (this.servuxServer || RendererToggle.OVERLAY_STRUCTURE_MAIN_TOGGLE.getBooleanValue() == false)
-        {
-            this.servuxServer = false;
-            if (this.hasInValidServux == false)
-            {
-                MiniHUD.debugLog("DataStorage#unregisterStructureChannel(): for {}", this.servuxVersion != null ? this.servuxVersion : "<unknown>");
-
-                HANDLER.encodeStructuresPacket(new ServuxStructuresPacket(ServuxStructuresPacket.Type.PACKET_C2S_STRUCTURES_UNREGISTER, new NbtCompound()));
-                HANDLER.reset(HANDLER.getPayloadChannel());
-            }
-        }
-        this.shouldRegisterStructureChannel = false;
-    }
-
-    public void onPacketFailure()
-    {
-        // Define how to handle multiple sendPayload failures
-        this.shouldRegisterStructureChannel = false;
-        this.servuxServer = false;
-        this.hasInValidServux = true;
-    }
-
-    private boolean structuresNeedUpdating(BlockPos playerPos, final int hysteresis)
+    private boolean structuresNeedUpdating(BlockPos playerPos, int hysteresis)
     {
         return this.structuresNeedUpdating || this.lastStructureUpdatePos == null ||
                 Math.abs(playerPos.getX() - this.lastStructureUpdatePos.getX()) >= hysteresis ||
@@ -877,27 +599,21 @@ public class DataStorage
                 Math.abs(playerPos.getZ() - this.lastStructureUpdatePos.getZ()) >= hysteresis;
     }
 
-    public int getStrucutreCount()
+    private void updateStructureDataFromIntegratedServer(final BlockPos playerPos)
     {
-        return this.structures.size();
-    }
-
-    private void updateStructureDataFromIntegratedServer(final BlockPos playerPos, final int maxRange)
-    {
-        if (this.mc.player == null || this.mc.getServer() == null) return;
-
         final RegistryKey<World> worldId = this.mc.player.getEntityWorld().getRegistryKey();
         final ServerWorld world = this.mc.getServer().getWorld(worldId);
 
         if (world != null)
         {
             MinecraftServer server = this.mc.getServer();
+            final int maxChunkRange = this.mc.options.getViewDistance().getValue() + 2;
 
-            ((IMixinMinecraftServer) server).minihud_send(new ServerTask(server.getTicks(), () ->
+            server.send(new ServerTask(server.getTicks(), () ->
             {
                 synchronized (this.structures)
                 {
-                    this.addStructureDataFromGenerator(world, playerPos, maxRange);
+                    this.addStructureDataFromGenerator(world, playerPos, maxChunkRange);
                 }
             }));
         }
@@ -913,22 +629,23 @@ public class DataStorage
         this.structuresNeedUpdating = false;
     }
 
-    public void addOrUpdateStructuresFromServer(NbtList structures, boolean isServux)
+    public void addOrUpdateStructuresFromServer(NbtList structures, int timeout, boolean isServux)
     {
-        if (isServux == false)
+        MiniHUD.debugLog("DataStorage#addOrUpdateStructuresFromServer(): start");
+
+        // Ignore the data from QuickCarpet if the Servux mod is also present
+        if (this.servuxServer && isServux == false)
         {
-            MiniHUD.debugLog("DataStorage#addOrUpdateStructuresFromServer(): Ignoring structure data when isServux is false");
-            //this.unregisterStructureChannel();
             return;
         }
 
         if (structures.getHeldType() == Constants.NBT.TAG_COMPOUND)
         {
-            this.structureDataTimeout = this.servuxTimeout + 300;
+            MiniHUD.debugLog("DataStorage#addOrUpdateStructuresFromServer(): count: " + structures.size());
+            this.structureDataTimeout = timeout + 200;
 
             long currentTime = this.mc.world.getTime();
             final int count = structures.size();
-            final int oldCount = this.structures.size();
 
             this.removeExpiredStructures(currentTime, this.structureDataTimeout);
 
@@ -949,8 +666,6 @@ public class DataStorage
                 }
             }
 
-            MiniHUD.debugLog("addOrUpdateStructuresFromServer: received {} structures // total size {} -> {}", count, oldCount, this.structures.size());
-
             this.structureRendererNeedsUpdate = true;
             this.hasStructureDataFromServer = true;
         }
@@ -958,22 +673,12 @@ public class DataStorage
 
     private void removeExpiredStructures(long currentTime, int timeout)
     {
-        int countBefore = this.structures.values().size();
-
-        this.structures.values().removeIf(data -> currentTime > (data.getRefreshTime() + (long) timeout));
-
-        int countAfter = this.structures.values().size();
-
-        if (countBefore != countAfter)
-        {
-            MiniHUD.debugLog("removeExpiredStructures: from server: {} -> {} structures", countBefore, countAfter);
-        }
+        long maxAge = timeout;
+        this.structures.values().removeIf(data -> currentTime > (data.getRefreshTime() + maxAge));
     }
 
     private void addStructureDataFromGenerator(ServerWorld world, BlockPos playerPos, int maxChunkRange)
     {
-        int lastCount = this.structures.size();
-
         this.structures.clear();
 
         int minCX = (playerPos.getX() >> 4) - maxChunkRange;
@@ -986,15 +691,7 @@ public class DataStorage
             for (int cx = minCX; cx <= maxCX; ++cx)
             {
                 // Don't load the chunk
-                Chunk chunk;
-                try
-                {
-                     chunk = world.getChunk(cx, cz, ChunkStatus.STRUCTURE_REFERENCES, false);
-                }
-                catch (Exception ignored)
-                {
-                    continue;
-                }
+                Chunk chunk = world.getChunk(cx, cz, ChunkStatus.FULL, false);
 
                 if (chunk == null)
                 {
@@ -1018,19 +715,13 @@ public class DataStorage
             }
         }
 
-        MiniHUD.debugLog("addStructureDataFromGenerator: updated from the integrated server: {} -> {} structures", lastCount, this.structures.size());
         this.structureRendererNeedsUpdate = true;
+
+        //MiniHUD.debugLog("Structure data updated from the integrated server ({} structures)", this.structures.size());
     }
 
     public void handleCarpetServerTPSData(Text textComponent)
     {
-        // Don't update from Carpet if we are using Servux
-        if (this.hasServuxTickData())
-        {
-            this.carpetServer = false;
-            return;
-        }
-
         if (textComponent.getString().isEmpty() == false)
         {
             String text = Formatting.strip(textComponent.getString());
@@ -1050,38 +741,12 @@ public class DataStorage
                         this.carpetServer = true;
                         return;
                     }
-                    catch (NumberFormatException ignore) {}
+                    catch (NumberFormatException ignore)
+                    {
+                    }
                 }
             }
         }
-    }
-
-    /**
-     * This is a hack just to be able to manage Forwards compat
-     * with the Servux Data Logger system; minus using TickUtils.
-     * @param data
-     */
-    public void handleServuxTickData(ServuxTickData data)
-    {
-        if (HudDataManager.getInstance().hasServuxServer())
-        {
-            this.servuxTickData = data;
-            this.serverTPS = data.tps();
-            this.serverMSPT = data.mspt();
-            this.serverTPSValid = true;
-            this.hasServuxTickData = true;
-        }
-    }
-
-    public boolean hasServuxTickData()
-    {
-        return this.hasServuxTickData;
-    }
-
-    @Nullable
-    public ServuxTickData getServuxTickData()
-    {
-        return this.servuxTickData;
     }
 
     public JsonObject toJson()
@@ -1090,28 +755,49 @@ public class DataStorage
 
         obj.add("distance_pos", JsonUtils.vec3dToJson(this.distanceReferencePoint));
 
+        if (this.worldSeedValid)
+        {
+            obj.add("seed", new JsonPrimitive(this.worldSeed));
+        }
+
         return obj;
     }
 
-    /**
-     * This function now checks for stale JSON data.
-     * It only compares it if we have an Integrated Server running, and they are marked as valid.
-     * @param obj ()
-     */
     public void fromJson(JsonObject obj)
     {
         Vec3d pos = JsonUtils.vec3dFromJson(obj, "distance_pos");
 
-        this.distanceReferencePoint = Objects.requireNonNullElse(pos, Vec3d.ZERO);
+        if (pos != null)
+        {
+            this.distanceReferencePoint = pos;
+        }
+        else
+        {
+            this.distanceReferencePoint = Vec3d.ZERO;
+        }
 
-        // Backwards compat
         if (JsonUtils.hasLong(obj, "seed"))
         {
-            HudDataManager.getInstance().setWorldSeed(JsonUtils.getLong(obj, "seed"));
-        }
-        if (JsonUtils.hasInteger(obj, "spawn_chunk_radius"))
-        {
-            HudDataManager.getInstance().setSpawnChunkRadius(JsonUtils.getIntegerOrDefault(obj, "spawn_chunk_radius", 2), false);
+            this.worldSeed = JsonUtils.getLong(obj, "seed");
+            this.worldSeedValid = true;
         }
     }
+    public boolean hasIntegratedServer() { return this.hasIntegratedServer; }
+    public void setHasIntegratedServer(boolean has) { this.hasIntegratedServer = has; }
+    public net.minecraft.server.integrated.IntegratedServer getIntegratedServer() { return this.mc != null ? this.mc.getServer() : null; }
+    public int getSimulationDistance() { return 10; }
+    public void setSimulationDistance(int distance) {}
+    public void onGameInit() {}
+    public boolean hasServuxServer() { return false; }
+    public String getServuxVersion() { return "unknown"; }
+    public int getStrucutreCount() { return 0; }
+    public int getStructureDataMaxRange() { return 10; }
+    public int getServerRenderDistance() { return 10; }
+    public void onPacketFailure() {}
+
+    public boolean hasServuxTickData() { return false; }
+    public ServuxTickData getServuxTickData() { return null; }
+    public boolean hasCarpetServer() { return false; }
+    public boolean isSinglePlayer() { return this.mc != null && this.mc.isInSingleplayer(); }
+
 }

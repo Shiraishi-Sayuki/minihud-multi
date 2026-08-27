@@ -11,10 +11,8 @@ import org.spongepowered.asm.mixin.injection.callback.CallbackInfo;
 import net.minecraft.entity.LivingEntity;
 import net.minecraft.entity.ai.goal.GoalSelector;
 import net.minecraft.entity.ai.pathing.Path;
-import net.minecraft.entity.mob.BreezeEntity;
 import net.minecraft.entity.mob.MobEntity;
 import net.minecraft.entity.passive.BeeEntity;
-import net.minecraft.registry.entry.RegistryEntry;
 import net.minecraft.server.network.DebugInfoSender;
 import net.minecraft.server.world.ServerWorld;
 import net.minecraft.structure.StructureStart;
@@ -69,7 +67,7 @@ public abstract class MixinDebugInfoSender
     {
         if (world instanceof ServerWorld serverWorld)
         {
-            DebugDataManager.getInstance().sendPathfindingData(serverWorld, mob, path, nodeReachProximity);
+            DebugDataManager.getInstance().sendPathfindingData(serverWorld, mob);
         }
     }
 
@@ -91,7 +89,10 @@ public abstract class MixinDebugInfoSender
     @Inject(method = "sendStructureStart", at = @At("HEAD"))
     private static void minihud_onSendStructureStart(StructureWorldAccess world, StructureStart structureStart, CallbackInfo ci)
     {
-        DebugDataManager.getInstance().sendStructureStart(world, structureStart);
+        if (world instanceof ServerWorld serverWorld)
+        {
+            DebugDataManager.getInstance().sendStructureStart(serverWorld, structureStart);
+        }
     }
 
     @Inject(method = "sendGoalSelector", at = @At("HEAD"))
@@ -99,7 +100,7 @@ public abstract class MixinDebugInfoSender
     {
         if (world instanceof ServerWorld serverWorld)
         {
-            DebugDataManager.getInstance().sendGoalSelector(serverWorld, mob, goalSelector);
+            DebugDataManager.getInstance().sendGoalSelector(serverWorld, mob);
         }
     }
 
@@ -129,17 +130,8 @@ public abstract class MixinDebugInfoSender
         }
     }
 
-    @Inject(method = "sendBreezeDebugData", at = @At("HEAD"))
-    private static void minihud_onSendBreezeDebugData(BreezeEntity breeze, CallbackInfo ci)
-    {
-        if (breeze.getWorld() instanceof ServerWorld world)
-        {
-            DebugDataManager.getInstance().sendBreezeDebugData(world, breeze);
-        }
-    }
-
     @Inject(method = "sendGameEvent", at = @At("HEAD"))
-    private static void minihud_onSendGameEvent(World world, RegistryEntry<GameEvent> event, Vec3d pos, CallbackInfo ci)
+    private static void minihud_onSendGameEvent(World world, GameEvent event, Vec3d pos, CallbackInfo ci)
     {
         if (world instanceof ServerWorld serverWorld)
         {

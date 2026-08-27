@@ -20,14 +20,16 @@ import org.spongepowered.asm.mixin.injection.callback.CallbackInfo;
 public class MixinPath
 {
     @Shadow @Final private List<PathNode> nodes;
-    @Shadow @Nullable private Path.DebugNodeInfo debugNodeInfos;
+    @Shadow private PathNode[] debugNodes;
+    @Shadow private PathNode[] debugSecondNodes;
+    @Shadow private Set<TargetPathNode> debugTargetNodes;
     @Shadow @Final private BlockPos target;
 
-    @Inject(method = "toBuf", at = @At("HEAD"))
+    @Inject(method = "toBuffer", at = @At("HEAD"))
     private void minihud_PathfindingFix(PacketByteBuf buf, CallbackInfo ci)
     {
-        this.debugNodeInfos = new Path.DebugNodeInfo(this.nodes.stream().filter((pathNode) ->
-                                  !pathNode.visited).toArray(PathNode[]::new), this.nodes.stream().filter((pathNode) ->
-                                  pathNode.visited).toArray(PathNode[]::new), Set.of(new TargetPathNode(this.target.getX(), this.target.getY(), this.target.getZ())));
+        this.debugNodes = this.nodes.stream().filter((pathNode) -> !pathNode.visited).toArray(PathNode[]::new);
+        this.debugSecondNodes = this.nodes.stream().filter((pathNode) -> pathNode.visited).toArray(PathNode[]::new);
+        this.debugTargetNodes = Set.of(new TargetPathNode(this.target.getX(), this.target.getY(), this.target.getZ()));
     }
 }

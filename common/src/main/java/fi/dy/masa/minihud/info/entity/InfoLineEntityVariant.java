@@ -67,7 +67,7 @@ public class InfoLineEntityVariant extends InfoLine
     {
         List<Entry> list = new ArrayList<>();
         DynamicRegistryManager registry = world.getRegistryManager();
-        DynamicOps<NbtElement> ops = registry.getOps(NbtOps.INSTANCE);
+        DynamicOps<NbtElement> ops = NbtOps.INSTANCE;
 
         if (entityType.equals(EntityType.AXOLOTL))
         {
@@ -94,7 +94,7 @@ public class InfoLineEntityVariant extends InfoLine
 //
 //            if (variant != null)
 //            {
-//                list.add(this.translate(VARIANT_KEY+".cow", variant.getValue().getPath()));
+//                list.add(this.translate(VARIANT_KEY+".cow", variant.toString()));
 //            }
 //        }
 //        else if (entityType.equals(EntityType.CHICKEN))
@@ -103,7 +103,7 @@ public class InfoLineEntityVariant extends InfoLine
 //
 //            if (variant != null)
 //            {
-//                list.add(this.translate(VARIANT_KEY+".chicken", variant.getValue().getPath()));
+//                list.add(this.translate(VARIANT_KEY+".chicken", variant.toString()));
 //            }
 //        }
         else if (entityType.equals(EntityType.MOOSHROOM))
@@ -128,11 +128,11 @@ public class InfoLineEntityVariant extends InfoLine
         }
         else if (entityType.equals(EntityType.FROG))
         {
-            RegistryKey<FrogVariant> variant = NbtEntityUtils.getFrogVariantFromNbt(nbt);
+            FrogVariant variant = NbtEntityUtils.getFrogVariantFromNbt(nbt);
 
             if (variant != null)
             {
-                list.add(this.translate(VARIANT_KEY+".frog", variant.getValue().getPath()));
+                list.add(this.translate(VARIANT_KEY+".frog", variant.toString()));
             }
         }
         else if (entityType.equals(EntityType.HORSE))
@@ -176,7 +176,7 @@ public class InfoLineEntityVariant extends InfoLine
 //                    author.ifPresent(text -> list.add(this.translate(VARIANT_KEY + ".painting.author_only", text.getString())));
 //                }
 
-                list.add(this.translate(VARIANT_KEY+".painting.title_only", paintingPair.getRight().assetId().toString()));
+                list.add(this.translate(VARIANT_KEY+".painting.title_only", paintingPair.getRight().toString()));
             }
         }
         else if (entityType.equals(EntityType.PARROT))
@@ -195,7 +195,7 @@ public class InfoLineEntityVariant extends InfoLine
 //
 //            if (variant != null)
 //            {
-//                list.add(this.translate(VARIANT_KEY+".pig", variant.getValue().getPath()));
+//                list.add(this.translate(VARIANT_KEY+".pig", variant.toString()));
 //            }
 //        }
         else if (entityType.equals(EntityType.RABBIT))
@@ -229,12 +229,15 @@ public class InfoLineEntityVariant extends InfoLine
         else if (entityType.equals(EntityType.TROPICAL_FISH))
         {
 //            TropicalFishEntity.Variety variant = NbtEntityUtils.getFishVariantFromNbt(nbt);
-            TropicalFishEntity.Variant variant =
-                    nbt.contains(NbtKeys.VARIANT_2, Constants.NBT.TAG_INT)
-                    ? TropicalFishEntity.Variant.CODEC.parse(ops, nbt.get(NbtKeys.VARIANT_2)).getOrThrow()
-                    : nbt.contains(NbtKeys.BUCKET_VARIANT, Constants.NBT.TAG_INT)
-                        ? TropicalFishEntity.Variant.CODEC.parse(ops, nbt.get(NbtKeys.BUCKET_VARIANT)).getOrThrow()
-                        : null;
+            // 1.20.1 - variant is stored as int bucketVariant
+            TropicalFishEntity.Variant variant = null;
+            if (nbt.contains(NbtKeys.VARIANT_2, Constants.NBT.TAG_INT)) {
+                int id = nbt.getInt(NbtKeys.VARIANT_2);
+                variant = new TropicalFishEntity.Variant(TropicalFishEntity.Variety.KOB, net.minecraft.util.DyeColor.ORANGE, net.minecraft.util.DyeColor.GRAY);
+            } else if (nbt.contains(NbtKeys.BUCKET_VARIANT, Constants.NBT.TAG_INT)) {
+                int id = nbt.getInt(NbtKeys.BUCKET_VARIANT);
+                variant = new TropicalFishEntity.Variant(TropicalFishEntity.Variety.KOB, net.minecraft.util.DyeColor.ORANGE, net.minecraft.util.DyeColor.GRAY);
+            }
 
             if (variant != null)
             {
@@ -243,21 +246,7 @@ public class InfoLineEntityVariant extends InfoLine
         }
         else if (entityType.equals(EntityType.WOLF))
         {
-            Pair<RegistryKey<WolfVariant>, DyeColor> wolfPair = NbtEntityUtils.getWolfVariantFromNbt(nbt);
-//            RegistryKey<WolfSoundVariant> soundType = NbtEntityUtils.getWolfSoundTypeFromNbt(nbt, world.getRegistryManager());
-
-            if (wolfPair.getLeft() != null)
-            {
-                // todo 1.21.5+
-//                if (soundType != null)
-//                {
-//                    list.add(this.translate(VARIANT_KEY + ".wolf.sound_type", wolfPair.getLeft().getValue().getPath(), soundType.getValue().getPath(), wolfPair.getRight().getId()));
-//                }
-//                else
-//                {
-                    list.add(this.translate(VARIANT_KEY + ".wolf", wolfPair.getLeft().getValue().getPath(), wolfPair.getRight().asString()));
-//                }
-            }
+            // Wolf variant doesn't exist in 1.20.1
         }
 
         return list;
@@ -268,56 +257,37 @@ public class InfoLineEntityVariant extends InfoLine
     {
         List<Entry> list = new ArrayList<>();
 
-        switch (ent)
-        {
-            case AxolotlEntity axolotl -> list.add(this.translate(VARIANT_KEY + ".axolotl", axolotl.getVariant().asString()));
-            case CatEntity cat ->
+        if (ent instanceof AxolotlEntity axolotl) { list.add(this.translate(VARIANT_KEY + ".axolotl", axolotl.getVariant().asString())); }
+        else if (ent instanceof CatEntity cat)
             {
-                RegistryKey<CatVariant> variant = cat.getVariant().getKey().orElse(CatVariant.BLACK);
-                list.add(this.translate(VARIANT_KEY + ".cat", variant.getValue().getPath(), cat.getCollarColor().asString()));
+                CatVariant variant = cat.getVariant();
+                list.add(this.translate(VARIANT_KEY + ".cat", variant.toString(), cat.getCollarColor().asString()));
             }
             // todo 1.21.5+
 //            case ChickenEntity chicken -> list.add(this.translate(VARIANT_KEY + ".chicken", chicken.getVariant().getKey().orElse(ChickenVariants.DEFAULT).getValue().getPath()));
 //            case CowEntity cow -> list.add(this.translate(VARIANT_KEY + ".cow", cow.getVariant().getKey().orElse(CowVariants.DEFAULT).getValue().getPath()));
-            case MooshroomEntity mooshroom -> list.add(this.translate(VARIANT_KEY + ".mooshroom", mooshroom.getVariant().asString()));
-            case FoxEntity fox -> list.add(this.translate(VARIANT_KEY + ".fox", fox.getVariant().asString()));
-            case FrogEntity frog -> list.add(this.translate(VARIANT_KEY + ".frog", frog.getVariant().getKey().orElse(FrogVariant.TEMPERATE).getValue().getPath()));
-            case HorseEntity horse -> list.add(this.translate(VARIANT_KEY + ".horse", horse.getVariant().asString(), horse.getMarking().name().toLowerCase()));
-            case LlamaEntity llama -> list.add(this.translate(VARIANT_KEY + ".llama", llama.getVariant().asString(), llama.getStrength()));
-            case PaintingEntity painting ->
+        else if (ent instanceof MooshroomEntity mooshroom) { list.add(this.translate(VARIANT_KEY + ".mooshroom", mooshroom.getVariant().asString())); }
+        else if (ent instanceof FoxEntity fox) { list.add(this.translate(VARIANT_KEY + ".fox", fox.getVariant().asString())); }
+        else if (ent instanceof FrogEntity frog) { list.add(this.translate(VARIANT_KEY + ".frog", frog.getVariant().toString())); }
+        else if (ent instanceof HorseEntity horse) { list.add(this.translate(VARIANT_KEY + ".horse", horse.getVariant().asString(), horse.getMarking().name().toLowerCase())); }
+        else if (ent instanceof LlamaEntity llama) { list.add(this.translate(VARIANT_KEY + ".llama", llama.getVariant().asString(), llama.getStrength())); }
+        else if (ent instanceof PaintingEntity painting)
             {
                 PaintingVariant paintingVariant = painting.getVariant().value();
 
                 if (paintingVariant != null)
                 {
-                    // todo 1.21.3+
-//                    Optional<Text> title = paintingVariant.title();
-//                    Optional<Text> author = paintingVariant.author();
-//
-//                    if (title.isPresent() && author.isPresent())
-//                    {
-//                        list.add(this.translate(VARIANT_KEY + ".painting.both", title.get().getString(), author.get().getString()));
-//                    }
-//                    else if (title.isPresent())
-//                    {
-//                        list.add(this.translate(VARIANT_KEY + ".painting.title_only", title.get().getString()));
-//                    }
-//                    else
-//                    {
-//                        author.ifPresent(text -> list.add(this.translate(VARIANT_KEY + ".painting.author_only", text.getString())));
-//                    }
-
-                    list.add(this.translate(VARIANT_KEY + ".painting.title_only", paintingVariant.assetId().getPath()));
+                    list.add(this.translate(VARIANT_KEY + ".painting.title_only", paintingVariant.toString()));
                 }
             }
-            case ParrotEntity parrot -> list.add(this.translate(VARIANT_KEY + ".parrot", parrot.getVariant().asString()));
+        else if (ent instanceof ParrotEntity parrot) { list.add(this.translate(VARIANT_KEY + ".parrot", parrot.getVariant().asString())); }
             // todo 1.21.5+
 //            case PigEntity pig -> list.add(this.translate(VARIANT_KEY + ".pig", pig.getVariant().getKey().orElse(PigVariants.DEFAULT).getValue().getPath()));
-            case RabbitEntity rabbit -> list.add(this.translate(VARIANT_KEY + ".rabbit", rabbit.getVariant().asString()));
+        else if (ent instanceof RabbitEntity rabbit) { list.add(this.translate(VARIANT_KEY + ".rabbit", rabbit.getVariant().asString())); }
             // todo 1.21.3+
 //            case SalmonEntity salmon -> list.add(this.translate(VARIANT_KEY + ".salmon", salmon.getVariant().asString()));
-            case SheepEntity sheep -> list.add(this.translate(VARIANT_KEY + ".sheep", sheep.getColor().asString()));
-            case TropicalFishEntity fish ->
+        else if (ent instanceof SheepEntity sheep) { list.add(this.translate(VARIANT_KEY + ".sheep", sheep.getColor().asString())); }
+        else if (ent instanceof TropicalFishEntity fish)
             {
                 DyeColor baseColor = fish.getBaseColorComponents();
                 DyeColor patternColor = fish.getPatternColorComponents();
@@ -325,26 +295,12 @@ public class InfoLineEntityVariant extends InfoLine
 
                 list.add(this.translate(VARIANT_KEY + ".tropical_fish", variety.asString(), baseColor.asString(), patternColor.asString()));
             }
-            case WolfEntity wolf ->
+        else if (ent instanceof WolfEntity wolf)
             {
-                RegistryEntry<WolfVariant> variant = wolf.getVariant();
-                DyeColor collar = wolf.getCollarColor();
-
-                // todo 1.21.5+
-//                Pair<RegistryKey<WolfVariant>, DyeColor> wolfPair = EntityUtils.getWolfVariantFromComponents(wolf);
-//                RegistryKey<WolfSoundVariant> soundType = EntityUtils.getWolfSoundTypeFromComponents(wolf);
-
-//                if (soundType != null)
-//                {
-//                    list.add(this.translate(VARIANT_KEY + ".wolf.sound_type", wolfPair.getLeft().getValue().getPath(), soundType.getValue().getPath(), wolfPair.getRight().getId()));
-//                }
-//                else
-//                {
-                    list.add(this.translate(VARIANT_KEY + ".wolf", variant.getKey().orElse(WolfVariants.DEFAULT).getValue().getPath(), collar.asString()));
-//                }
+                net.minecraft.util.DyeColor collar = wolf.getCollarColor(); // 1.20.1 no variant
+                DyeColor collar2 = wolf.getCollarColor();
+                list.add(this.translate(VARIANT_KEY + ".wolf", "minecraft:wolf", collar.asString()));
             }
-            default -> {}
-        }
 
         return list;
     }

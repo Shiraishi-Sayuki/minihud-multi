@@ -275,10 +275,7 @@ public class DebugInfoUtils
         {
             renderer.villageSectionsDebugRenderer.render(matrixStack, vtx, cameraX, cameraY, cameraZ);
         }
-        if (RendererToggle.DEBUG_BREEZE_JUMP.getBooleanValue())
-        {
-            renderer.breezeDebugRenderer.render(matrixStack, vtx, cameraX, cameraY, cameraZ);
-        }
+        // Breeze debug renderer doesn't exist in 1.20.1
         if (RendererToggle.DEBUG_RAID_CENTER.getBooleanValue())
         {
             renderer.raidCenterDebugRenderer.render(matrixStack, vtx, cameraX, cameraY, cameraZ);

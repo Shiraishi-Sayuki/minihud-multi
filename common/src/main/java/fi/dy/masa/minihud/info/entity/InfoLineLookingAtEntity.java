@@ -67,13 +67,13 @@ public class InfoLineLookingAtEntity extends InfoLine
 
                 if (owner != null)
                 {
-                    entityLine = entityLine + " - " + this.qt(LOOKING_KEY+".owner") + ": " + owner.getName().getLiteralString();
+                    entityLine = entityLine + " - " + this.qt(LOOKING_KEY+".owner") + ": " + owner.getName().getString();
                 }
             }
             if (agePair.getLeft() < 0)
             {
                 int untilGrown = agePair.getLeft() * (-1);
-                entityLine = entityLine+ " [" + MiscUtils.formatDuration(untilGrown * 50L) + " " + this.qt(REMAINING_KEY) + "]";
+                entityLine = entityLine+ " [" + String.valueOf(untilGrown * 50L / 1000) + "s" + " " + this.qt(REMAINING_KEY) + "]";
             }
 
             list.add(this.format(entityLine));
@@ -88,7 +88,7 @@ public class InfoLineLookingAtEntity extends InfoLine
 
                 if (owner != null)
                 {
-                    entityLine = entityLine + " - " + this.qt(LOOKING_KEY+".owner") + ": " + owner.getName().getLiteralString();
+                    entityLine = entityLine + " - " + this.qt(LOOKING_KEY+".owner") + ": " + owner.getName().getString();
                 }
             }
             if (living instanceof PassiveEntity passive)
@@ -96,14 +96,15 @@ public class InfoLineLookingAtEntity extends InfoLine
                 if (passive.getBreedingAge() < 0)
                 {
                     int untilGrown = ((IMixinPassiveEntity) passive).minihud_getRealBreedingAge() * (-1);
-                    entityLine = entityLine+ " [" + MiscUtils.formatDuration(untilGrown * 50L) + " " + this.qt(REMAINING_KEY) + "]";
+                    entityLine = entityLine+ " [" + String.valueOf(untilGrown * 50L / 1000) + "s" + " " + this.qt(REMAINING_KEY) + "]";
                 }
             }
 
             list.add(this.format(entityLine));
         }
-        else if (ctx.ent() instanceof Entity ent)
+        else if (ctx.ent() != null)
         {
+            Entity ent = ctx.ent();
             list.add(this.translate(LOOKING_KEY, ent.getName().getString()));
         }
 

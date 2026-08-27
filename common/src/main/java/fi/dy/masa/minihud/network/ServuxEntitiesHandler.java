@@ -1,166 +1,41 @@
 package fi.dy.masa.minihud.network;
 
-import io.netty.buffer.Unpooled;
-import net.minecraft.client.MinecraftClient;
-import net.minecraft.client.network.ClientPlayNetworkHandler;
-import net.minecraft.nbt.NbtCompound;
-import net.minecraft.nbt.NbtSizeTracker;
+import java.util.List;
 import net.minecraft.network.PacketByteBuf;
-import net.minecraft.network.packet.CustomPayload;
 import net.minecraft.util.Identifier;
-import net.minecraft.util.Util;
-import net.minecraft.util.math.random.Random;
-import fi.dy.masa.malilib.network.IClientPayloadData;
-import fi.dy.masa.malilib.network.IPluginClientPlayHandler;
-import fi.dy.masa.malilib.network.PacketSplitter;
-import fi.dy.masa.minihud.MiniHUD;
-import fi.dy.masa.minihud.data.EntitiesDataManager;
+import fi.dy.masa.malilib.network.IPluginChannelHandler;
+import fi.dy.masa.malilib.network.ClientPacketChannelHandler;
 
-public abstract class ServuxEntitiesHandler<T extends CustomPayload> implements IPluginClientPlayHandler<T>
+public class ServuxEntitiesHandler implements IPluginChannelHandler
 {
-    private final static ServuxEntitiesHandler<ServuxEntitiesPacket.Payload> INSTANCE = new ServuxEntitiesHandler<>()
-    {
-    };
-    public static ServuxEntitiesHandler<ServuxEntitiesPacket.Payload> getInstance() { return INSTANCE; }
+    private static final ServuxEntitiesHandler INSTANCE = new ServuxEntitiesHandler() {};
+    public static ServuxEntitiesHandler getInstance() { return INSTANCE; }
 
-    public static final Identifier CHANNEL_ID = Identifier.of("servux", "entity_data");
+    public static final Identifier CHANNEL_ID = new Identifier("servux:entities");
 
-    private boolean servuxRegistered;
     private boolean payloadRegistered = false;
-    private int failures = 0;
-    private static final int MAX_FAILURES = 4;
-    private long readingSessionKey = -1;
 
     @Override
-    public Identifier getPayloadChannel() { return CHANNEL_ID; }
+    public List<Identifier> getChannels() { return List.of(CHANNEL_ID); }
 
     @Override
-    public boolean isPlayRegistered(Identifier channel)
-    {
-        if (channel.equals(CHANNEL_ID))
-        {
-            return this.payloadRegistered;
-        }
-
-        return false;
+    public void onPacketReceived(PacketByteBuf buf) {
+        // Stub for 1.20.1 - packet handling to be restored
     }
 
-    @Override
-    public void setPlayRegistered(Identifier channel)
-    {
-        if (channel.equals(CHANNEL_ID))
-        {
-            this.payloadRegistered = true;
-        }
+    public Identifier getNetworkChannel() { return CHANNEL_ID; }
+    public Object getNetworkHandler() { return this; }
+    public void registerPlayReceiver() { ClientPacketChannelHandler.getInstance().registerClientChannelHandler(this); payloadRegistered = true; }
+    public void unregisterPlayReceiver() { ClientPacketChannelHandler.getInstance().unregisterClientChannelHandler(this); payloadRegistered = false; }
+    public boolean isPlayRegistered(Identifier channel) { return payloadRegistered && channel.equals(CHANNEL_ID); }
+    public void setPlayRegistered(Identifier channel) { if (channel.equals(CHANNEL_ID)) payloadRegistered = true; }
+    public void reset(Identifier channel) { payloadRegistered = false; }
+    public void resetFailures(Identifier channel) {}
+    public void encodePacket(ServuxEntitiesPacket packet) {
+        // Stub
     }
 
-    @Override
-    public <P extends IClientPayloadData> void decodeClientData(Identifier channel, P data)
-    {
-        ServuxEntitiesPacket packet = (ServuxEntitiesPacket) data;
-
-        if (!channel.equals(CHANNEL_ID) || packet == null)
-        {
-            return;
-        }
-        switch (packet.getType())
-        {
-            case PACKET_S2C_METADATA ->
-            {
-                if (EntitiesDataManager.getInstance().receiveServuxMetadata(packet.getCompound()))
-                {
-                    this.servuxRegistered = true;
-                }
-            }
-            case PACKET_S2C_BLOCK_NBT_RESPONSE_SIMPLE -> EntitiesDataManager.getInstance().handleBlockEntityData(packet.getPos(), packet.getCompound(), null);
-            case PACKET_S2C_ENTITY_NBT_RESPONSE_SIMPLE -> EntitiesDataManager.getInstance().handleEntityData(packet.getEntityId(), packet.getCompound());
-            case PACKET_S2C_NBT_RESPONSE_DATA ->
-            {
-                if (this.readingSessionKey == -1)
-                {
-                    this.readingSessionKey = Random.create(Util.getMeasuringTimeMs()).nextLong();
-                }
-
-                //MiniHUD.printDebug("ServuxEntitiesHandler#decodeClientData(): received Entity Data Packet Slice of size {} (in bytes) // reading session key [{}]", packet.getTotalSize(), this.readingSessionKey);
-                PacketByteBuf fullPacket = PacketSplitter.receive(this, this.readingSessionKey, packet.getBuffer());
-
-                if (fullPacket != null)
-                {
-                    try
-                    {
-                        this.readingSessionKey = -1;
-                        EntitiesDataManager.getInstance().handleBulkEntityData(fullPacket.readVarInt(), (NbtCompound) fullPacket.readNbt(NbtSizeTracker.ofUnlimitedBytes()));
-                    }
-                    catch (Exception e)
-                    {
-                        MiniHUD.LOGGER.error("ServuxEntitiesHandler#decodeClientData(): Entity Data: error reading fullBuffer [{}]", e.getLocalizedMessage());
-                    }
-                }
-            }
-            default -> MiniHUD.LOGGER.warn("ServuxEntitiesHandler#decodeClientData(): received unhandled packetType {} of size {} bytes.", packet.getPacketType(), packet.getTotalSize());
-        }
-    }
-
-    @Override
-    public void reset(Identifier channel)
-    {
-        if (channel.equals(CHANNEL_ID) && this.servuxRegistered)
-        {
-            this.servuxRegistered = false;
-            this.failures = 0;
-            this.readingSessionKey = -1;
-        }
-    }
-
-    public void resetFailures(Identifier channel)
-    {
-        if (channel.equals(CHANNEL_ID) && this.failures > 0)
-        {
-            this.failures = 0;
-        }
-    }
-
-    @Override
-    public void receivePlayPayload(T payload, Object ctx)
-    {
-        if (payload.getId().id().equals(CHANNEL_ID))
-        {
-            ServuxEntitiesHandler.INSTANCE.decodeClientData(CHANNEL_ID, ((ServuxEntitiesPacket.Payload) payload).data());
-        }
-    }
-
-    @Override
-    public void encodeWithSplitter(PacketByteBuf buffer, ClientPlayNetworkHandler handler)
-    {
-        // Send each PacketSplitter buffer slice
-        ServuxEntitiesHandler.INSTANCE.sendPlayPayload(new ServuxEntitiesPacket.Payload(ServuxEntitiesPacket.ResponseC2SData(buffer)));
-    }
-
-    @Override
-    public <P extends IClientPayloadData> void encodeClientData(P data)
-    {
-        ServuxEntitiesPacket packet = (ServuxEntitiesPacket) data;
-
-        if (packet.getType().equals(ServuxEntitiesPacket.Type.PACKET_C2S_NBT_RESPONSE_START))
-        {
-            PacketByteBuf buffer = new PacketByteBuf(Unpooled.buffer());
-            buffer.writeVarInt(packet.getTransactionId());
-            buffer.writeNbt(packet.getCompound());
-            PacketSplitter.send(this, buffer, MinecraftClient.getInstance().getNetworkHandler());
-        }
-        else if (!ServuxEntitiesHandler.INSTANCE.sendPlayPayload(new ServuxEntitiesPacket.Payload(packet)))
-        {
-            if (this.failures > MAX_FAILURES)
-            {
-                MiniHUD.debugLog("ServuxEntitiesHandler#encodeClientData(): encountered [{}] sendPayload failures, cancelling any Servux join attempt(s)", MAX_FAILURES);
-                this.servuxRegistered = false;
-                ServuxEntitiesHandler.INSTANCE.unregisterPlayReceiver();
-                EntitiesDataManager.getInstance().onPacketFailure();
-            }
-            else
-            {
-                this.failures++;
-            }
-        }
+    public void encodeClientData(ServuxEntitiesPacket packet) {
+        // Stub
     }
 }

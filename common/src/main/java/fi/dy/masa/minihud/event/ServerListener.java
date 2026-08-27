@@ -17,6 +17,6 @@ public class ServerListener implements IServerListener
     @Override
     public void onServerIntegratedSetup(IntegratedServer server)
     {
-        DataStorage.getInstance().setHasIntegratedServer(true, server);
+        DataStorage.getInstance().setHasIntegratedServer(true);
     }
 }

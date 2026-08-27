@@ -13,6 +13,4 @@ public interface IMixinBufferBuilder
     @Accessor("vertexCount")
     int minihud_getVertexCount();
 
-    @Accessor("vertexPointer")
-    long minihud_getVertexPointer();
 }

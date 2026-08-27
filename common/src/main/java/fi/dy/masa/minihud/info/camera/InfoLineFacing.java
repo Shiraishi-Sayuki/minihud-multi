@@ -44,7 +44,7 @@ public class InfoLineFacing extends InfoLine
     {
         List<Entry> list = new ArrayList<>();
 
-	    Direction facing = ent.getFacing();
+	    Direction facing = ent.getHorizontalFacing();
 	    String facingName = StringUtils.translate(FACING_KEY+"." + facing.name().toLowerCase() + ".name");
 	    String str;
 

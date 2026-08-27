@@ -63,7 +63,7 @@ public class InputHandler implements IKeybindProvider, IMouseInputHandler
             if (RendererToggle.OVERLAY_SLIME_CHUNKS_OVERLAY.getBooleanValue() &&
                 RendererToggle.OVERLAY_SLIME_CHUNKS_OVERLAY.getKeybind().isKeybindHeld())
             {
-                OverlayRendererSlimeChunks.INSTANCE.overlayTopY += (dWheel < 0 ? 1 : -1);
+                OverlayRendererSlimeChunks.overlayTopY += (dWheel < 0 ? 1 : -1);
                 KeyCallbackAdjustable.setValueChanged();
                 return true;
             }

@@ -16,7 +16,7 @@ import fi.dy.masa.minihud.info.InfoLineRenderStats;
 public abstract class MixinLevelRenderer
 {
 	@Inject(method = "render", at = @At("HEAD"))
-	private void minihud_resetRenderStats(RenderTickCounter tickCounter, boolean renderBlockOutline, Camera camera, GameRenderer gameRenderer, LightmapTextureManager lightmapTextureManager, Matrix4f matrix4f, Matrix4f matrix4f2, CallbackInfo ci)
+	private void minihud_resetRenderStats(MatrixStack matrices, float tickDelta, long nanoTime, boolean renderBlockOutline, Camera camera, GameRenderer gameRenderer, LightmapTextureManager lightmapTextureManager, Matrix4f matrix4f, CallbackInfo ci)
 	{
 		InfoLineRenderStats.INSTANCE.resetEntityCount();
 		InfoLineRenderStats.INSTANCE.resetTileEntityCount();

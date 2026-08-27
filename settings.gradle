@@ -21,4 +21,4 @@ pluginManagement {
 rootProject.name = 'minihud-multiloader'
 include('common')
 include('fabric')
-include('neoforge')
+include('forge')

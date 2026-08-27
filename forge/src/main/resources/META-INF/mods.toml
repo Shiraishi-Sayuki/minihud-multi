@@ -1,15 +1,15 @@
 modLoader = "javafml"
-loaderVersion = "[4,)"
+loaderVersion = "[46,)"
 license = "LGPLv3"
 
 [[mods]]
 modId = "minihud"
-version = "${mod_version}"
+version = "${version}"
 displayName = "MiniHUD"
 displayURL = "https://github.com/maruohon/minihud"
 logoFile = "assets/minihud/icon.png"
 credits = "masa"
-authors = "masa, Shiraishi-Sayuki (multiloader port)"
+authors = "masa, Shiraishi Sayuki (multiloader port)"
 description = '''
 Various client-side HUD-related information overlays in one mod.
 '''
@@ -18,22 +18,22 @@ Various client-side HUD-related information overlays in one mod.
 config = "mixins.minihud.json"
 
 [[dependencies.minihud]]
-modId = "neoforge"
+modId = "forge"
 mandatory = true
-versionRange = "[21.0.0,)"
+versionRange = "[46,)"
 ordering = "NONE"
 side = "CLIENT"
 
 [[dependencies.minihud]]
 modId = "minecraft"
 mandatory = true
-versionRange = "[1.21,1.22)"
+versionRange = "[1.20,1.21)"
 ordering = "NONE"
 side = "CLIENT"
 
 [[dependencies.minihud]]
 modId = "malilib"
 mandatory = true
-versionRange = "[0.21,)"
+versionRange = "[0.20.01,)"
 ordering = "AFTER"
 side = "CLIENT"

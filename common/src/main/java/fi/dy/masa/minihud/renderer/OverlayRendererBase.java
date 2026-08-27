@@ -2,102 +2,32 @@ package fi.dy.masa.minihud.renderer;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.util.function.Supplier;
 import javax.annotation.Nullable;
 import com.google.gson.JsonObject;
-import org.joml.Matrix4f;
-import org.lwjgl.opengl.GL11C;
-
 import com.mojang.blaze3d.systems.RenderSystem;
-import net.minecraft.client.gl.VertexBuffer;
+import org.joml.Matrix4f;
+import net.minecraft.client.gl.ShaderProgram;
+import net.minecraft.client.render.BufferBuilder;
 import net.minecraft.client.render.GameRenderer;
 import net.minecraft.client.render.VertexFormat;
 import net.minecraft.client.render.VertexFormats;
+import net.minecraft.client.util.math.MatrixStack;
 import net.minecraft.util.math.BlockPos;
 import net.minecraft.util.math.Vec3d;
-import net.minecraft.world.World;
-import net.minecraft.world.chunk.WorldChunk;
-
-import fi.dy.masa.malilib.util.WorldUtils;
 
 public abstract class OverlayRendererBase implements IOverlayRenderer
 {
-    protected final List<RenderObjectVbo> renderObjects = new ArrayList<>();
+    protected static final BufferBuilder BUFFER_1 = new BufferBuilder(2097152);
+    protected static final BufferBuilder BUFFER_2 = new BufferBuilder(2097152);
+    //protected static final BufferBuilder BUFFER_3 = new BufferBuilder(2097152);
+
+    protected final List<RenderObjectBase> renderObjects = new ArrayList<>();
     protected boolean renderThrough;
     protected boolean useCulling;
-    protected float glLineWidth;
-    @Nullable protected BlockPos lastUpdatePos;
-    private Vec3d updateCameraPos;
-    protected boolean shouldResort;
-
-    public OverlayRendererBase()
-    {
-        this.glLineWidth = 1.0f;
-        this.lastUpdatePos = BlockPos.ORIGIN;
-        this.updateCameraPos = Vec3d.ZERO;
-        this.renderThrough = false;
-        this.useCulling = false;
-        this.shouldResort = false;
-    }
-
-    protected void clearBuffers()
-    {
-        if (!this.renderObjects.isEmpty())
-        {
-            this.resetBuffers();
-            this.renderObjects.clear();
-        }
-    }
-
-    protected void allocateBuffers()
-    {
-        this.allocateBuffers(true);
-    }
-
-    protected void allocateBuffers(boolean useOutlines)
-    {
-        this.clearBuffers();
-        this.renderObjects.add(this.createQuadsVbo());
-
-        if (useOutlines)
-        {
-            this.renderObjects.add(this.createOutlinesVbo());
-        }
-    }
-
-    protected RenderObjectVbo createQuadsVbo()
-    {
-        return new RenderObjectVbo(
-                () -> this.getName()+" Quads",
-                VertexFormat.DrawMode.QUADS,
-                VertexFormats.POSITION_COLOR,
-                GameRenderer::getPositionColorProgram,
-                VertexBuffer.Usage.STATIC);
-    }
-
-    protected RenderObjectVbo createTexturedQuadsVbo()
-    {
-        return new RenderObjectVbo(
-                        () -> this.getName()+" Textured Quads",
-                        VertexFormat.DrawMode.QUADS,
-                        VertexFormats.POSITION_TEXTURE_COLOR,
-                        GameRenderer::getPositionTexColorProgram,
-                        VertexBuffer.Usage.STATIC);
-    }
-
-    protected RenderObjectVbo createOutlinesVbo()
-    {
-        return new RenderObjectVbo(
-                        () -> this.getName() + " Outlines",
-                        VertexFormat.DrawMode.DEBUG_LINES,
-                        VertexFormats.POSITION_COLOR,
-                        GameRenderer::getPositionColorProgram,
-                        VertexBuffer.Usage.STATIC);
-    }
-
-    protected void resetBuffers()
-    {
-        this.renderObjects.forEach(RenderObjectVbo::reset);
-    }
+    protected float glLineWidth = 1f;
+    @Nullable protected BlockPos lastUpdatePos = BlockPos.ORIGIN;
+    private Vec3d updateCameraPos = Vec3d.ZERO;
 
     @Override
     public final Vec3d getUpdatePosition()
@@ -111,47 +41,14 @@ public abstract class OverlayRendererBase implements IOverlayRenderer
         this.updateCameraPos = cameraPosition;
     }
 
-    protected int getTopYOverTerrain(World world, BlockPos pos, int range)
-    {
-        final int minX = pos.getX() - range;
-        final int minZ = pos.getZ() - range;
-        final int maxX = pos.getX() + range;
-        final int maxZ = pos.getZ() + range;
-
-        final int minCX = minX >> 4;
-        final int minCZ = minZ >> 4;
-        final int maxCX = maxX >> 4;
-        final int maxCZ = maxZ >> 4;
-        int maxY = 0;
-
-        for (int cz = minCZ; cz <= maxCZ; ++cz)
-        {
-            for (int cx = minCX; cx <= maxCX; ++cx)
-            {
-                WorldChunk chunk = world.getChunk(cx, cz);
-                int height = WorldUtils.getHighestSectionYOffset(chunk) + 15;
-
-                if (height > maxY)
-                {
-                    maxY = height;
-                }
-            }
-        }
-
-        return maxY + 4;
-    }
-
     protected void preRender()
     {
+        RenderSystem.lineWidth(this.glLineWidth);
+
         if (this.renderThrough)
         {
             RenderSystem.disableDepthTest();
             //RenderSystem.depthMask(false);
-        }
-        else
-        {
-            RenderSystem.enableDepthTest();
-            RenderSystem.depthFunc(GL11C.GL_LEQUAL); // In case someone else was being cheeky.
         }
 
         if (this.useCulling)
@@ -162,13 +59,6 @@ public abstract class OverlayRendererBase implements IOverlayRenderer
         {
             RenderSystem.disableCull();
         }
-
-        RenderSystem.depthMask(false);
-        RenderSystem.lineWidth(this.glLineWidth);
-        RenderSystem.polygonOffset(-3f, -3f);
-        RenderSystem.enablePolygonOffset();
-        fi.dy.masa.malilib.render.RenderUtils.setupBlend();
-        fi.dy.masa.malilib.render.RenderUtils.color(1f, 1f, 1f, 1f);
     }
 
     protected void postRender()
@@ -179,44 +69,60 @@ public abstract class OverlayRendererBase implements IOverlayRenderer
             //RenderSystem.depthMask(true);
         }
 
-        if (!this.useCulling)
-        {
-            RenderSystem.enableCull();
-        }
-
-        RenderSystem.polygonOffset(0f, 0f);
-        RenderSystem.disablePolygonOffset();
-        fi.dy.masa.malilib.render.RenderUtils.color(1f, 1f, 1f, 1f);
-        RenderSystem.disableBlend();
-        RenderSystem.depthMask(true);
+        RenderSystem.enableCull();
     }
 
     @Override
-    public void draw(Vec3d cameraPos, Matrix4f posMatrix, Matrix4f projMatrix)
+    public void draw(MatrixStack matrixStack, Matrix4f projMatrix)
     {
-        for (RenderObjectVbo obj : this.renderObjects)
+        this.preRender();
+
+        for (RenderObjectBase obj : this.renderObjects)
         {
-            if (!obj.isStarted()) continue;
-
-//            // TODO (nvidia only?)
-//            if (this.shouldResort && obj.shouldResort())
-//            {
-//                obj.resortTranslucent(obj.createVertexSorter(cameraPos));
-//            }
-
-            this.preRender();
-            obj.drawPost(posMatrix, projMatrix);
-            this.postRender();
+            obj.draw(matrixStack, projMatrix);
         }
+
+        this.postRender();
     }
 
     @Override
-    public void reset()
+    public void deleteGlResources()
     {
-        this.resetBuffers();
-        this.glLineWidth = 1f;
-        this.lastUpdatePos = BlockPos.ORIGIN;
-        this.updateCameraPos = Vec3d.ZERO;
+        for (RenderObjectBase obj : this.renderObjects)
+        {
+            obj.deleteGlResources();
+        }
+
+        this.renderObjects.clear();
+    }
+
+    /**
+     * Allocates a new VBO or display list, adds it to the list, and returns it
+     * @param glMode
+     * @return
+     */
+    protected RenderObjectBase allocateBuffer(VertexFormat.DrawMode glMode)
+    {
+        return this.allocateBuffer(glMode, VertexFormats.POSITION_COLOR, GameRenderer::getPositionColorProgram);
+    }
+
+    /**
+     * Allocates a new VBO or display list, adds it to the list, and returns it
+     * @param glMode
+     * @return
+     */
+    protected RenderObjectBase allocateBuffer(VertexFormat.DrawMode glMode, VertexFormat format, Supplier<ShaderProgram> shader)
+    {
+        RenderObjectBase obj = new RenderObjectVbo(glMode, format, shader);
+        this.renderObjects.add(obj);
+        return obj;
+    }
+
+    @Override
+    public void allocateGlResources()
+    {
+        this.allocateBuffer(VertexFormat.DrawMode.QUADS);
+        this.allocateBuffer(VertexFormat.DrawMode.DEBUG_LINES);
     }
 
     public void setRenderThrough(boolean renderThrough)

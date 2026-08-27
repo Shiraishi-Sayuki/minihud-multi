@@ -2,32 +2,28 @@ package fi.dy.masa.minihud.renderer;
 
 import it.unimi.dsi.fastutil.longs.LongIterator;
 import it.unimi.dsi.fastutil.longs.LongOpenHashSet;
-
 import net.minecraft.block.entity.BlockEntity;
 import net.minecraft.block.entity.BlockEntityType;
 import net.minecraft.client.MinecraftClient;
+import net.minecraft.client.render.VertexFormats;
 import net.minecraft.client.world.ClientChunkManager;
 import net.minecraft.client.world.ClientWorld;
 import net.minecraft.entity.Entity;
 import net.minecraft.util.math.BlockPos;
 import net.minecraft.util.math.Vec3d;
-import net.minecraft.util.profiler.Profiler;
 import net.minecraft.world.World;
 import net.minecraft.world.chunk.ChunkStatus;
 import net.minecraft.world.chunk.WorldChunk;
-
 import fi.dy.masa.malilib.config.IConfigBoolean;
 
 public abstract class BaseBlockRangeOverlay<T extends BlockEntity> extends OverlayRendererBase
 {
-//    private final AnsiLogger LOGGER = new AnsiLogger(BaseBlockRangeOverlay.class, true, true);
     protected final IConfigBoolean renderToggleConfig;
-    protected final LongOpenHashSet blockPositions;
+    protected final LongOpenHashSet blockPositions = new LongOpenHashSet();
     protected final BlockEntityType<T> blockEntityType;
     protected final Class<T> blockEntityClass;
-    protected World world;
+    protected boolean needsFullRebuild;
     protected boolean needsUpdate;
-    protected boolean hasData;
     protected int updateDistance = 48;
 
     protected BaseBlockRangeOverlay(IConfigBoolean renderToggleConfig,
@@ -37,21 +33,26 @@ public abstract class BaseBlockRangeOverlay<T extends BlockEntity> extends Overl
         this.renderToggleConfig = renderToggleConfig;
         this.blockEntityType = blockEntityType;
         this.blockEntityClass = blockEntityClass;
-        this.blockPositions = new LongOpenHashSet();
-        this.world = null;
-        this.hasData = false;
+    }
+
+    public void clear()
+    {
+        synchronized (this.blockPositions)
+        {
+            this.blockPositions.clear();
+        }
     }
 
     public void setNeedsUpdate()
     {
-        if (!this.renderToggleConfig.getBooleanValue())
+        if (this.renderToggleConfig.getBooleanValue() == false)
         {
             this.clear();
             return;
         }
 
         this.needsUpdate = true;
-        //this.needsFullRebuild = true;
+        this.needsFullRebuild = true;
     }
 
     public void onBlockStatusChange(BlockPos pos)
@@ -77,71 +78,49 @@ public abstract class BaseBlockRangeOverlay<T extends BlockEntity> extends Overl
     {
         return this.needsUpdate || this.lastUpdatePos == null ||
                Math.abs(cameraEntity.getX() - this.lastUpdatePos.getX()) > this.updateDistance ||
-               Math.abs(cameraEntity.getZ() - this.lastUpdatePos.getZ()) > this.updateDistance ||
-               Math.abs(cameraEntity.getY() - this.lastUpdatePos.getY()) > this.updateDistance;
+               Math.abs(cameraEntity.getZ() - this.lastUpdatePos.getZ()) > this.updateDistance;
     }
 
     @Override
-    public void update(Vec3d cameraPos, Entity entity, MinecraftClient mc, Profiler profiler)
+    public void update(Vec3d cameraPos, Entity entity, MinecraftClient mc)
     {
-        if (mc.world == null) return;
+        this.startBuffers();
 
-        this.hasData = this.fetchAllTargetBlockEntityPositions(mc.world, entity.getBlockPos(), mc);
-        this.world = entity.getEntityWorld();
-
-//        LOGGER.debug("update(): hasData: {} // positions: {}", this.hasData, this.blockPositions.size());
-
-        if (this.hasData())
+        synchronized (this.blockPositions)
         {
-            this.updateBlockRanges(this.world, cameraPos, mc, profiler);
-            // This batches all detected locations in a single render, in theory
-            this.render(cameraPos, mc, profiler);
+            if (this.needsFullRebuild)
+            {
+                this.blockPositions.clear();
+                this.fetchAllTargetBlockEntityPositions(mc.world, entity.getBlockPos(), mc);
+                this.needsFullRebuild = false;
+            }
+
+            this.renderBlockRanges(entity.getEntityWorld(), cameraPos, mc);
         }
+
+        this.uploadBuffers();
 
         this.needsUpdate = false;
     }
 
-    @Override
-    public boolean hasData()
+    protected void startBuffers()
     {
-        return this.hasData && !this.blockPositions.isEmpty();
+        BUFFER_1.begin(this.renderObjects.get(0).getGlMode(), VertexFormats.POSITION_COLOR);
+        BUFFER_2.begin(this.renderObjects.get(1).getGlMode(), VertexFormats.POSITION_COLOR);
     }
 
-    @Override
-    public void render(Vec3d cameraPos, MinecraftClient mc, Profiler profiler)
+    protected void uploadBuffers()
     {
-//        LOGGER.debug("render(): hasData: {} // positions: {}", this.hasData, this.blockPositions.size());
-        this.renderBlockRange(this.world, cameraPos, mc, profiler);
+        this.renderObjects.get(0).uploadData(BUFFER_1);
+        this.renderObjects.get(1).uploadData(BUFFER_2);
     }
 
-    private void clear()
-    {
-//        LOGGER.debug("clear(): hasData: {} // positions: {}", this.hasData, this.blockPositions.size());
-        synchronized (this.blockPositions)
-        {
-            this.blockPositions.clear();
-        }
-    }
-
-    @Override
-    public void reset()
-    {
-//        LOGGER.debug("reset(): hasData: {} // positions: {}", this.hasData, this.blockPositions.size());
-        super.reset();
-        this.resetBlockRange();
-        this.clear();
-        this.hasData = false;
-    }
-
-    protected boolean fetchAllTargetBlockEntityPositions(ClientWorld world, BlockPos centerPos, MinecraftClient mc)
+    protected void fetchAllTargetBlockEntityPositions(ClientWorld world, BlockPos centerPos, MinecraftClient mc)
     {
         ClientChunkManager chunkManager = world.getChunkManager();
         int centerCX = centerPos.getX() >> 4;
         int centerCZ = centerPos.getZ() >> 4;
         int chunkRadius = mc.options.getViewDistance().getValue();
-
-//        LOGGER.debug("fetchAllTargetBlockEntityPositions(): hasData: {} // positions: {}", this.hasData, this.blockPositions.size());
-        this.blockPositions.clear();
 
         for (int cz = centerCZ - chunkRadius; cz <= centerCZ + chunkRadius; ++cz)
         {
@@ -155,36 +134,27 @@ public abstract class BaseBlockRangeOverlay<T extends BlockEntity> extends Overl
                     {
                         if (be.getType() == this.blockEntityType)
                         {
-                            synchronized (this.blockPositions)
-                            {
-                                this.blockPositions.add(be.getPos().asLong());
-                                this.hasData = true;
-                            }
+                            this.blockPositions.add(be.getPos().asLong());
                         }
                     }
                 }
             }
         }
-
-        return !this.blockPositions.isEmpty() && this.blockPositions.size() > 0;
     }
 
-    protected void updateBlockRanges(World world, Vec3d cameraPos, MinecraftClient mc, Profiler profiler)
+    protected void renderBlockRanges(World world, Vec3d cameraPos, MinecraftClient mc)
     {
         LongIterator it = this.blockPositions.iterator();
         BlockPos.Mutable mutablePos = new BlockPos.Mutable();
         double max = (mc.options.getViewDistance().getValue() + 2) * 16;
         max = max * max;
 
-        profiler.push("render_block_ranges");
-//        LOGGER.debug("updateBlockRanges(): hasData: {} // positions: {}", this.hasData, this.blockPositions.size());
-
         while (it.hasNext())
         {
             mutablePos.set(it.nextLong());
             BlockEntity be = world.getBlockEntity(mutablePos);
 
-            if (be == null || !this.blockEntityClass.isAssignableFrom(be.getClass()))
+            if (be == null || this.blockEntityClass.isAssignableFrom(be.getClass()) == false)
             {
                 it.remove();
                 continue;
@@ -195,22 +165,43 @@ public abstract class BaseBlockRangeOverlay<T extends BlockEntity> extends Overl
 
             if (distSq > max)
             {
-                this.expireBlockRange(mutablePos.toImmutable());
                 continue;
             }
 
             T castBe = this.blockEntityClass.cast(be);
-            this.updateBlockRange(world, mutablePos.toImmutable(), castBe, cameraPos, mc, profiler);
+            this.renderBlockRange(world, mutablePos, castBe, cameraPos);
         }
-
-        profiler.pop();
     }
 
-    protected abstract void updateBlockRange(World world, BlockPos pos, T be, Vec3d cameraPos, MinecraftClient mc, Profiler profiler);
+    protected int getTopYOverTerrain(World world, BlockPos pos, int range)
+    {
+        final int minX = pos.getX() - range;
+        final int minZ = pos.getZ() - range;
+        final int maxX = pos.getX() + range;
+        final int maxZ = pos.getZ() + range;
 
-    protected abstract void renderBlockRange(World world, Vec3d cameraPos, MinecraftClient mc, Profiler profiler);
+        final int minCX = minX >> 4;
+        final int minCZ = minZ >> 4;
+        final int maxCX = maxX >> 4;
+        final int maxCZ = maxZ >> 4;
+        int maxY = 0;
 
-    protected abstract void expireBlockRange(BlockPos pos);
+        for (int cz = minCZ; cz <= maxCZ; ++cz)
+        {
+            for (int cx = minCX; cx <= maxCX; ++cx)
+            {
+                WorldChunk chunk = world.getChunk(cx, cz);
+                int height = chunk.getHighestNonEmptySectionYOffset() + 15;
 
-    protected abstract void resetBlockRange();
+                if (height > maxY)
+                {
+                    maxY = height;
+                }
+            }
+        }
+
+        return maxY + 4;
+    }
+
+    protected abstract void renderBlockRange(World world, BlockPos pos, T be, Vec3d cameraPos);
 }

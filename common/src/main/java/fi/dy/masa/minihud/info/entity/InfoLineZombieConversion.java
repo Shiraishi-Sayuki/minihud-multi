@@ -96,16 +96,21 @@ public class InfoLineZombieConversion extends InfoLine
         List<Entry> list = new ArrayList<>();
         int conversionTimer;
 
-        switch (ent)
+        if (ent instanceof ZombieVillagerEntity zombie)
         {
-            case ZombieVillagerEntity zombie ->
-                    conversionTimer = ((IMixinZombieVillagerEntity) zombie).minihud_conversionTimer();
-            case ZombieEntity zombert ->
-                    conversionTimer = ((IMixinZombieEntity) zombert).minihud_ticksUntilWaterConversion();
-            case SkeletonEntity skeleton ->
-                    conversionTimer = ((IMixinSkeletonEntity) skeleton).minihud_conversionTime();
-            default ->
-                    conversionTimer = -1;
+            conversionTimer = ((IMixinZombieVillagerEntity) zombie).minihud_conversionTimer();
+        }
+        else if (ent instanceof ZombieEntity zombert)
+        {
+            conversionTimer = ((IMixinZombieEntity) zombert).minihud_ticksUntilWaterConversion();
+        }
+        else if (ent instanceof SkeletonEntity skeleton)
+        {
+            conversionTimer = ((IMixinSkeletonEntity) skeleton).minihud_conversionTime();
+        }
+        else
+        {
+            conversionTimer = -1;
         }
 
         if (conversionTimer > 0)

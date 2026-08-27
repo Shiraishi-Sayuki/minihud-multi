@@ -60,25 +60,13 @@ public class InfoLineFurnaceExp extends InfoLine
             beType.equals(BlockEntityType.BLAST_FURNACE) ||
             beType.equals(BlockEntityType.SMOKER))
         {
-//            if (world instanceof ServerWorld serverWorld)
-//            {
-                int exp = MiscUtils.getFurnaceXpAmount(world, nbt);
+            // 1.20.1: Can't compute XP from NBT alone - needs actual BE access
+            int exp = 0;
 
-                if (exp > 0)
-                {
-                    list.add(this.translate(FURNACE_KEY, exp));
-                }
-//            }
-            // todo 1.21.3+
-//            else if (this.getHudData().hasServuxServer() && this.getHudData().hasRecipes())
-//            {
-//                int exp = MiscUtils.getFurnaceXpAmount(nbt);
-//
-//                if (exp > 0)
-//                {
-//                    list.add(this.translate(FURNACE_KEY, exp));
-//                }
-//            }
+            if (exp > 0)
+            {
+                list.add(this.translate(FURNACE_KEY, exp));
+            }
         }
 
         return list;
@@ -93,7 +81,7 @@ public class InfoLineFurnaceExp extends InfoLine
         {
 //            if (world instanceof ServerWorld serverWorld)
 //            {
-                int exp = MiscUtils.getFurnaceXpAmount(world, furnace);
+                int exp = MiscUtils.getFurnaceXpAmount(furnace);
 
                 if (exp > 0)
                 {

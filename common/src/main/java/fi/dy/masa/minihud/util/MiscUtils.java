@@ -1,42 +1,27 @@
 package fi.dy.masa.minihud.util;
 
 import java.util.List;
+import java.util.Optional;
 import java.util.Random;
-import javax.annotation.Nonnull;
 import javax.annotation.Nullable;
 import it.unimi.dsi.fastutil.objects.Object2IntMap;
 import it.unimi.dsi.fastutil.objects.Object2IntOpenHashMap;
-import org.apache.commons.lang3.math.Fraction;
-
 import net.minecraft.block.entity.AbstractFurnaceBlockEntity;
-import net.minecraft.block.entity.BeehiveBlockEntity;
-import net.minecraft.component.DataComponentTypes;
-import net.minecraft.component.type.*;
 import net.minecraft.entity.passive.AxolotlEntity;
 import net.minecraft.item.ItemStack;
 import net.minecraft.nbt.NbtCompound;
+import net.minecraft.nbt.NbtList;
 import net.minecraft.recipe.AbstractCookingRecipe;
-import net.minecraft.recipe.RecipeEntry;
-import net.minecraft.server.world.ServerWorld;
-import net.minecraft.state.property.Properties;
+import net.minecraft.recipe.Recipe;
 import net.minecraft.text.MutableText;
 import net.minecraft.text.Style;
 import net.minecraft.text.Text;
 import net.minecraft.util.Identifier;
 import net.minecraft.util.math.BlockBox;
 import net.minecraft.util.math.BlockPos;
-import net.minecraft.util.math.GlobalPos;
-import net.minecraft.util.math.MathHelper;
 import net.minecraft.world.World;
-
+import fi.dy.masa.malilib.util.Constants;
 import fi.dy.masa.malilib.util.IntBoundingBox;
-import fi.dy.masa.malilib.util.StringUtils;
-import fi.dy.masa.malilib.util.data.Constants;
-import fi.dy.masa.malilib.util.nbt.NbtBlockUtils;
-import fi.dy.masa.malilib.util.time.DurationFormat;
-import fi.dy.masa.malilib.util.time.TimeFormat;
-import fi.dy.masa.minihud.config.Configs;
-import fi.dy.masa.minihud.mixin.block.IMixinAbstractFurnaceBlockEntity;
 
 public class MiscUtils
 {
@@ -96,20 +81,30 @@ public class MiscUtils
 
     public static boolean isStructureWithinRange(@Nullable BlockBox bb, BlockPos playerPos, int maxRange)
     {
-        return bb != null &&
-                playerPos.getX() >= (bb.getMinX() - maxRange) &&
-                playerPos.getX() <= (bb.getMaxX() + maxRange) &&
-                playerPos.getZ() >= (bb.getMinZ() - maxRange) &&
-                playerPos.getZ() <= (bb.getMaxZ() + maxRange);
+        if (bb == null ||
+            playerPos.getX() < (bb.getMinX() - maxRange) ||
+            playerPos.getX() > (bb.getMaxX() + maxRange) ||
+            playerPos.getZ() < (bb.getMinZ() - maxRange) ||
+            playerPos.getZ() > (bb.getMaxZ() + maxRange))
+        {
+            return false;
+        }
+
+        return true;
     }
 
     public static boolean isStructureWithinRange(@Nullable IntBoundingBox bb, BlockPos playerPos, int maxRange)
     {
-        return bb != null &&
-                playerPos.getX() >= (bb.minX - maxRange) &&
-                playerPos.getX() <= (bb.maxX + maxRange) &&
-                playerPos.getZ() >= (bb.minZ - maxRange) &&
-                playerPos.getZ() <= (bb.maxZ + maxRange);
+        if (bb == null ||
+            playerPos.getX() < (bb.minX - maxRange) ||
+            playerPos.getX() > (bb.maxX + maxRange) ||
+            playerPos.getZ() < (bb.minZ - maxRange) ||
+            playerPos.getZ() > (bb.maxZ + maxRange))
+        {
+            return false;
+        }
+
+        return true;
     }
 
     public static boolean areBoxesEqual(IntBoundingBox bb1, IntBoundingBox bb2)
@@ -118,18 +113,12 @@ public class MiscUtils
                bb1.maxX == bb2.maxX && bb1.maxY == bb2.maxY && bb1.maxZ == bb2.maxZ;
     }
 
-    public static int getSpawnableChunksCount(@Nonnull ServerWorld world)
-    {
-        return world.getChunkManager().chunkLoadingManager.getTicketManager().getTickedChunkCount();
-    }
-
     public static void addAxolotlTooltip(ItemStack stack, List<Text> lines)
     {
-        NbtComponent entityData = stack.getComponents().get(DataComponentTypes.BUCKET_ENTITY_DATA);
+        NbtCompound tag = stack.getNbt();
 
-        if (entityData != null)
+        if (tag != null && tag.contains(AxolotlEntity.VARIANT_KEY, Constants.NBT.TAG_INT))
         {
-            NbtCompound tag = entityData.copyNbt();
             int variantId = tag.getInt(AxolotlEntity.VARIANT_KEY);
             // FIXME 1.19.3+ this is not validated now... with AIOOB it will return the entry for ID 0
             AxolotlEntity.Variant variant = AxolotlEntity.Variant.byId(variantId);
@@ -148,50 +137,33 @@ public class MiscUtils
 
     public static void addBeeTooltip(ItemStack stack, List<Text> lines)
     {
-        List<BeehiveBlockEntity.BeeData> beeList = stack.getOrDefault(DataComponentTypes.BEES, List.of());
+        NbtCompound stackTag = stack.getNbt();
 
-        if (beeList != null && beeList.isEmpty() == false)
+        if (stackTag != null && stackTag.contains("BlockEntityTag", Constants.NBT.TAG_COMPOUND))
         {
-            int count = beeList.size();
+            NbtCompound beTag = stackTag.getCompound("BlockEntityTag");
+            NbtList bees = beTag.getList("Bees", Constants.NBT.TAG_COMPOUND);
+            int count = bees.size();
             int babyCount = 0;
 
-            for (BeehiveBlockEntity.BeeData beeOccupant : beeList)
+            for (int i = 0; i < count; i++)
             {
-                NbtComponent beeData = beeOccupant.entityData();
-                NbtCompound beeTag = beeData.copyNbt();
-                int beeTicks = beeOccupant.ticksInHive();
-                String beeName = "";
-                int beeAge = -1;
+                NbtCompound beeTag = bees.getCompound(i);
+                NbtCompound entityDataTag = beeTag.getCompound("EntityData");
 
-                if (beeTag.contains("CustomName", Constants.NBT.TAG_STRING))
+                if (entityDataTag.contains("CustomName", Constants.NBT.TAG_STRING))
                 {
-                    beeName = beeTag.getString("CustomName");
-                }
-                if (beeTag.contains("Age", Constants.NBT.TAG_INT))
-                {
-                    beeAge = beeTag.getInt("Age");
-                }
-                if (beeAge + beeTicks < 0)
-                {
-                    babyCount++;
+                    String beeName = entityDataTag.getString("CustomName");
+                    lines.add(Math.min(1, lines.size()), Text.translatable("minihud.label.bee_tooltip.name", Text.Serializer.fromJson(beeName).getString()));
                 }
 
-                if (beeName.isEmpty() == false)
+                if (entityDataTag.contains("Age", Constants.NBT.TAG_INT) &&
+                    entityDataTag.getInt("Age") + beeTag.getInt("TickInHive") < 0)
                 {
-                    Text beeText;
-
-                    try
-                    {
-                        beeText = Text.Serialization.fromJson(beeName, DataStorage.getInstance().getWorldRegistryManager());
-                    }
-                    catch (Exception ignored)
-                    {
-                        beeText = Text.of(beeName);
-                    }
-
-                    lines.add(Math.min(1, lines.size()), Text.translatable("minihud.label.bee_tooltip.name", beeText));
+                    ++babyCount;
                 }
             }
+
             Text text;
 
             if (babyCount > 0)
@@ -207,129 +179,39 @@ public class MiscUtils
         }
     }
 
-    public static void addBundleTooltip(ItemStack stack, List<Text> lines)
-    {
-        BundleContentsComponent bundleData = stack.get(DataComponentTypes.BUNDLE_CONTENTS);
-        final int maxCount = Configs.Generic.BUNDLE_TOOLTIPS_FILL_LEVEL.getIntegerValue();
-
-        if (bundleData != null)
-        {
-            Fraction occupancy = bundleData.getOccupancy();
-            int count;
-            float fillPercent;
-
-            if (maxCount != 64)
-            {
-                count = InventoryUtils.recalculateBundleSize(bundleData, maxCount);
-                fillPercent = 100 * ((float) count / maxCount);
-            }
-            else
-            {
-                count = MathHelper.multiplyFraction(occupancy, maxCount);
-                fillPercent = 100 * occupancy.floatValue();
-            }
-
-            String result;
-
-            if (count > maxCount)
-            {
-                result = StringUtils.translate("minihud.label.bundle_tooltip.count.full", count, maxCount, fillPercent);
-            }
-            else
-            {
-                result = StringUtils.translate("minihud.label.bundle_tooltip.count", count, maxCount, fillPercent);
-            }
-
-            lines.add(Text.of(result));
-        }
-    }
-
     public static void addHoneyTooltip(ItemStack stack, List<Text> lines)
     {
-        BlockStateComponent blockItemState = stack.getComponents().get(DataComponentTypes.BLOCK_STATE);
+        NbtCompound tag = stack.getNbt();
 
-        if (blockItemState != null && blockItemState.isEmpty() == false)
+        if (tag != null && tag.contains("BlockStateTag", Constants.NBT.TAG_COMPOUND))
         {
-            Integer honey = blockItemState.getValue(Properties.HONEY_LEVEL);
+            tag = tag.getCompound("BlockStateTag");
             String honeyLevel = "0";
 
-            if (honey != null && (honey >= 0 && honey <= 5))
+            if (tag != null && tag.contains("honey_level", Constants.NBT.TAG_STRING))
             {
-                honeyLevel = String.valueOf(honey);
+                honeyLevel = tag.getString("honey_level");
+            }
+            else if (tag != null && tag.contains("honey_level", Constants.NBT.TAG_INT))
+            {
+                honeyLevel = String.valueOf(tag.getInt("honey_level"));
             }
 
             lines.add(Math.min(1, lines.size()), Text.translatable("minihud.label.honey_info.level", honeyLevel));
         }
     }
 
-    public static void addCustomModelTooltip(ItemStack stack, List<Text> lines)
+    public static int getFurnaceXpAmount(AbstractFurnaceBlockEntity be)
     {
-        CustomModelDataComponent data = stack.get(DataComponentTypes.CUSTOM_MODEL_DATA);
-
-        if (data != null)
-        {
-            // Only display the first entry of any type
-            // TODO 1.21.4+
-            /*
-            Float aFloat = data.getFloat(0);
-            Boolean aFlag = data.getFlag(0);
-            String aString = data.getString(0);
-            Integer aColor = data.getColor(0);
-
-            if (aFloat != null)
-            {
-                lines.add(StringUtils.translateAsText("minihud.label.custom_model_data_tooltip.float", aFloat));
-            }
-            if (aFlag != null)
-            {
-                lines.add(StringUtils.translateAsText("minihud.label.custom_model_data_tooltip.flag", aFlag));
-            }
-            if (aString != null)
-            {
-                lines.add(StringUtils.translateAsText("minihud.label.custom_model_data_tooltip.string", aString));
-            }
-            if (aColor != null)
-            {
-                lines.add(StringUtils.translateAsText("minihud.label.custom_model_data_tooltip.color", aColor));
-            }
-             */
-
-            Integer value = data.value();
-            lines.add(StringUtils.translateAsText("minihud.label.custom_model_data_tooltip.color", value));
-        }
-    }
-
-    public static void addFoodTooltip(ItemStack stack, List<Text> lines)
-    {
-        FoodComponent data = stack.get(DataComponentTypes.FOOD);
-
-        if (data != null)
-        {
-            lines.add(StringUtils.translateAsText("minihud.label.food_tooltip", ((float) data.nutrition() / 2) , data.saturation()));
-        }
-    }
-
-    public static void addLodestoneTooltip(ItemStack stack, List<Text> lines)
-    {
-        LodestoneTrackerComponent data = stack.get(DataComponentTypes.LODESTONE_TRACKER);
-
-        if (data != null && data.target().isPresent())
-        {
-            GlobalPos pos = data.target().get();
-            lines.add(StringUtils.translateAsText("minihud.label.lodestone_tooltip", pos.dimension().getValue().getPath(), pos.pos().toShortString()));
-        }
-    }
-
-    public static int getFurnaceXpAmount(World world, AbstractFurnaceBlockEntity be)
-    {
-        Object2IntOpenHashMap<Identifier> recipes = ((IMixinAbstractFurnaceBlockEntity) be).minihud_getUsedRecipes();
+        Object2IntOpenHashMap<Identifier> recipes = new Object2IntOpenHashMap<>(); // 1.20.1 stub
+        World world = be.getWorld();
         double xp = 0.0;
 
         for (Object2IntMap.Entry<Identifier> entry : recipes.object2IntEntrySet())
         {
-            RecipeEntry<?> recipeEntry = world.getRecipeManager().get(entry.getKey()).orElse(null);
+            Optional<? extends Recipe<?>> recipeOpt = world.getRecipeManager().get(entry.getKey());
 
-            if (recipeEntry != null && recipeEntry.value() instanceof AbstractCookingRecipe recipe)
+            if (recipeOpt.isPresent() && recipeOpt.get() instanceof AbstractCookingRecipe recipe)
             {
                 xp += entry.getIntValue() * recipe.getExperience();
             }
@@ -337,52 +219,8 @@ public class MiscUtils
 
         return (int) xp;
     }
+    public static String formatDuration(long ms) { long s = ms / 1000; long m = s / 60; s %= 60; return String.format("%d:%02d", m, s); }
 
-    public static int getFurnaceXpAmount(World world, @Nonnull NbtCompound nbt)
-    {
-        Object2IntOpenHashMap<Identifier> recipes = NbtBlockUtils.getRecipesUsedFromNbt(nbt);
-        double xp = 0.0;
+    public static String formatDateNow() { return java.time.LocalTime.now().format(java.time.format.DateTimeFormatter.ofPattern("HH:mm:ss")); }
 
-        for (Object2IntMap.Entry<Identifier> entry : recipes.object2IntEntrySet())
-        {
-            RecipeEntry<?> recipeEntry = world.getRecipeManager().get(entry.getKey()).orElse(null);
-
-            if (recipeEntry != null && recipeEntry.value() instanceof AbstractCookingRecipe recipe)
-            {
-                xp += entry.getIntValue() * recipe.getExperience();
-            }
-        }
-
-        return (int) xp;
-    }
-
-    public static String formatDateNow()
-    {
-        return formatDateFromEpoch(-1);
-    }
-
-    public static String formatDateFromEpoch(long epochMs)
-    {
-        TimeFormat type = (TimeFormat) Configs.Generic.DATE_FORMAT_TYPE.getOptionListValue();
-
-        if (epochMs < 0)
-        {
-            return type.formatNow(Configs.Generic.DATE_FORMAT_STRING.getStringValue());
-        }
-
-        return type.formatTo(epochMs, Configs.Generic.DATE_FORMAT_STRING.getStringValue());
-    }
-
-    public static long getEpochMsFromString(String time)
-    {
-        TimeFormat type = (TimeFormat) Configs.Generic.DATE_FORMAT_TYPE.getOptionListValue();
-
-        return type.formatFrom(time, Configs.Generic.DATE_FORMAT_STRING.getStringValue());
-    }
-
-    public static String formatDuration(long duration)
-    {
-        DurationFormat type = (DurationFormat) Configs.Generic.DURATION_FORMAT_TYPE.getOptionListValue();
-        return type.format(duration, Configs.Generic.DURATION_FORMAT_STRING.getStringValue());
-    }
 }

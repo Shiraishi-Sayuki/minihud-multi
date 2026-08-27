@@ -1,177 +1,41 @@
 package fi.dy.masa.minihud.network;
 
-import net.minecraft.client.network.ClientPlayNetworkHandler;
-import net.minecraft.nbt.NbtCompound;
-import net.minecraft.nbt.NbtList;
-import net.minecraft.nbt.NbtSizeTracker;
+import java.util.List;
 import net.minecraft.network.PacketByteBuf;
-import net.minecraft.network.packet.CustomPayload;
 import net.minecraft.util.Identifier;
-import net.minecraft.util.Util;
-import net.minecraft.util.math.random.Random;
+import fi.dy.masa.malilib.network.IPluginChannelHandler;
+import fi.dy.masa.malilib.network.ClientPacketChannelHandler;
 
-import fi.dy.masa.malilib.network.IPluginClientPlayHandler;
-import fi.dy.masa.malilib.network.PacketSplitter;
-import fi.dy.masa.malilib.util.data.Constants;
-import fi.dy.masa.minihud.MiniHUD;
-import fi.dy.masa.minihud.data.HudDataManager;
-import fi.dy.masa.minihud.util.DataStorage;
-
-public abstract class ServuxStructuresHandler<T extends CustomPayload> implements IPluginClientPlayHandler<T>
+public class ServuxStructuresHandler implements IPluginChannelHandler
 {
-    private final static ServuxStructuresHandler<ServuxStructuresPacket.Payload> INSTANCE = new ServuxStructuresHandler<>()
-    {
-    };
-    public static ServuxStructuresHandler<ServuxStructuresPacket.Payload> getInstance() { return INSTANCE; }
+    private static final ServuxStructuresHandler INSTANCE = new ServuxStructuresHandler() {};
+    public static ServuxStructuresHandler getInstance() { return INSTANCE; }
 
-    public static final Identifier CHANNEL_ID = Identifier.of("servux", "structures");
+    public static final Identifier CHANNEL_ID = new Identifier("servux:structures");
 
-    private boolean servuxRegistered;
     private boolean payloadRegistered = false;
-    private int failures = 0;
-    private static final int MAX_FAILURES = 4;
-    private long readingSessionKey = -1;
 
     @Override
-    public Identifier getPayloadChannel() { return CHANNEL_ID; }
+    public List<Identifier> getChannels() { return List.of(CHANNEL_ID); }
 
     @Override
-    public boolean isPlayRegistered(Identifier channel)
-    {
-        if (channel.equals(CHANNEL_ID))
-        {
-            return this.payloadRegistered;
-        }
-
-        return false;
+    public void onPacketReceived(PacketByteBuf buf) {
+        // Stub for 1.20.1 - packet handling to be restored
     }
 
-    @Override
-    public void setPlayRegistered(Identifier channel)
-    {
-        if (channel.equals(CHANNEL_ID))
-        {
-            this.payloadRegistered = true;
-        }
+    public Identifier getNetworkChannel() { return CHANNEL_ID; }
+    public Object getNetworkHandler() { return this; }
+    public void registerPlayReceiver() { ClientPacketChannelHandler.getInstance().registerClientChannelHandler(this); payloadRegistered = true; }
+    public void unregisterPlayReceiver() { ClientPacketChannelHandler.getInstance().unregisterClientChannelHandler(this); payloadRegistered = false; }
+    public boolean isPlayRegistered(Identifier channel) { return payloadRegistered && channel.equals(CHANNEL_ID); }
+    public void setPlayRegistered(Identifier channel) { if (channel.equals(CHANNEL_ID)) payloadRegistered = true; }
+    public void reset(Identifier channel) { payloadRegistered = false; }
+    public void resetFailures(Identifier channel) {}
+    public void encodePacket(ServuxStructuresPacket packet) {
+        // Stub
     }
 
-    public void decodeStructuresPacket(Identifier channel, ServuxStructuresPacket packet)
-    {
-        if (!channel.equals(CHANNEL_ID) || packet == null)
-        {
-            return;
-        }
-        switch (packet.getType())
-        {
-            case PACKET_S2C_STRUCTURE_DATA ->
-            {
-                if (this.readingSessionKey == -1)
-                {
-                    this.readingSessionKey = Random.create(Util.getMeasuringTimeMs()).nextLong();
-                }
-
-                PacketByteBuf fullPacket = PacketSplitter.receive(this, this.readingSessionKey, packet.getBuffer());
-
-                if (fullPacket != null)
-                {
-                    try
-                    {
-                        NbtCompound nbt = (NbtCompound) fullPacket.readNbt(NbtSizeTracker.ofUnlimitedBytes());
-                        this.readingSessionKey = -1;
-
-                        if (nbt != null)
-                        {
-                            NbtList structures = nbt.getList("Structures", Constants.NBT.TAG_COMPOUND);
-                            //MiniHUD.printDebug("decodeStructuresPacket(): received Structures Data of size {} (in bytes) // structures [{}]", nbt.getSizeInBytes(), structures.size());
-
-                            DataStorage.getInstance().addOrUpdateStructuresFromServer(structures, this.servuxRegistered);
-                        }
-                        else
-                        {
-                            MiniHUD.LOGGER.warn("decodeStructuresPacket(): Structures Data: error reading fullBuffer NBT is NULL");
-                        }
-                    }
-                    catch (Exception e)
-                    {
-                        MiniHUD.LOGGER.error("decodeStructuresPacket(): Structures Data: error reading fullBuffer [{}]", e.getLocalizedMessage());
-                    }
-                }
-            }
-            case PACKET_S2C_METADATA ->
-            {
-                if (DataStorage.getInstance().receiveServuxStrucutresMetadata(packet.getCompound()))
-                {
-                    this.servuxRegistered = true;
-                }
-            }
-            // For backwards compat, only if hud_data isn't connected, or if Servux is too old
-            case PACKET_S2C_SPAWN_METADATA ->
-            {
-                if (!HudDataManager.getInstance().hasServuxServer())
-                {
-                    HudDataManager.getInstance().receiveSpawnMetadata(packet.getCompound());
-                }
-            }
-            case PACKET_S2C_WEATHER_DATA ->
-            {
-                if (!HudDataManager.getInstance().hasServuxServer())
-                {
-                    HudDataManager.getInstance().receiveWeatherData(packet.getCompound());
-                }
-            }
-            default -> MiniHUD.LOGGER.warn("decodeStructuresPacket(): received unhandled packetType {} of size {} bytes.", packet.getPacketType(), packet.getTotalSize());
-        }
-    }
-
-    @Override
-    public void reset(Identifier channel)
-    {
-        if (channel.equals(CHANNEL_ID) && this.servuxRegistered)
-        {
-            this.servuxRegistered = false;
-            this.failures = 0;
-            this.readingSessionKey = -1;
-        }
-    }
-
-    public void resetFailures(Identifier channel)
-    {
-        if (channel.equals(CHANNEL_ID) && this.failures > 0)
-        {
-            this.failures = 0;
-        }
-    }
-
-    @Override
-    public void receivePlayPayload(T payload, Object ctx)
-    {
-        if (payload.getId().id().equals(CHANNEL_ID))
-        {
-            ServuxStructuresHandler.INSTANCE.decodeStructuresPacket(CHANNEL_ID, ((ServuxStructuresPacket.Payload) payload).data());
-        }
-    }
-
-    @Override
-    public void encodeWithSplitter(PacketByteBuf buffer, ClientPlayNetworkHandler handler)
-    {
-        // NO-OP
-    }
-
-    public void encodeStructuresPacket(ServuxStructuresPacket packet)
-    {
-        if (!ServuxStructuresHandler.INSTANCE.sendPlayPayload(new ServuxStructuresPacket.Payload(packet)))
-        {
-            if (this.failures > MAX_FAILURES)
-            {
-                MiniHUD.debugLog("encodeStructuresPacket(): encountered [{}] sendPayload failures, cancelling any Servux join attempt(s)", MAX_FAILURES);
-                this.servuxRegistered = false;
-                ServuxStructuresHandler.INSTANCE.unregisterPlayReceiver();
-                DataStorage.getInstance().onPacketFailure();
-            }
-            else
-            {
-                this.failures++;
-            }
-        }
+    public void encodeClientData(ServuxStructuresPacket packet) {
+        // Stub
     }
 }

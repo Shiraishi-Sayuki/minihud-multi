@@ -1,0 +1,40 @@
+modLoader = "javafml"
+loaderVersion = "[4,)"
+license = "LGPLv3"
+
+[[mods]]
+modId = "minihud"
+version = "${mod_version}"
+displayName = "MiniHUD"
+updateJSONURL = "https://masa.dy.fi/maven/minihud/minihud.json"
+displayURL = "https://www.curseforge.com/minecraft/mc-mods/minihud"
+logoFile = "assets/minihud/icon.png"
+authors = "masa, Shiraishi Sayuki (multiloader port)"
+description = "Configurable \"mini-F3\" info lines, and various overlay renderers"
+accessTransformers = [
+  "META-INF/accesstransformer.cfg"
+]
+
+[[mixins]]
+config = "mixins.minihud.json"
+
+[[dependencies.minihud]]
+modId = "neoforge"
+type = "required"
+versionRange = "[26.2,)"
+ordering = "NONE"
+side = "CLIENT"
+
+[[dependencies.minihud]]
+modId = "minecraft"
+type = "required"
+versionRange = "[26.2,)"
+ordering = "NONE"
+side = "CLIENT"
+
+[[dependencies.minihud]]
+modId = "malilib"
+type = "required"
+versionRange = "[0.26.2,)"
+ordering = "AFTER"
+side = "CLIENT"

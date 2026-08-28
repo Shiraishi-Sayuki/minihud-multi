@@ -1,0 +1,52 @@
+{
+    "required": true,
+    "package": "fi.dy.masa.minihud.mixin",
+    "plugin": "fi.dy.masa.minihud.compat.mixin.MiniHUDMixinConfigPlugin",
+    "compatibilityLevel": "JAVA_25",
+    "minVersion": "0.8",
+    "mixins": [
+        "block.IMixinAbstractFurnaceBlockEntity",
+        "block.IMixinBeaconBlockEntity",
+        "block.MixinBeaconBlockEntity",
+        "block.MixinConduitBlockEntity",
+        "entity.IMixinAgeableMob",
+        "entity.IMixinCopperGolem",
+        "entity.IMixinEntity",
+        "entity.IMixinSkeleton",
+        "entity.IMixinZombie",
+        "entity.IMixinZombieVillager",
+        "item.MixinBundleItem",
+        "item.MixinItemStack",
+        "network.MixinServerGamePacketListenerImpl",
+        "server.IMixinMinecraftServer",
+        "server.MixinChunkMap",
+        "server.MixinMinecraftServer",
+        "world.IMixinBiomeManager",
+        "world.IMixinClientboundSectionBlocksUpdatePacket",
+        "world.IMixinLevel",
+        "world.IMixinRecipeManager",
+        "world.IMixinServerLevel",
+        "world.MixinDistanceManager",
+        "world.MixinPersistentEntitySectionManager",
+        "world.MixinServerLevel"
+    ],
+    "client": [
+        "client.IMixinOptions",
+        "client.MixinMinecraft",
+        "debug.IMixinClientPacketListener",
+        "debug.MixinDebugRenderer",
+        "debug.MixinDebugScreenEntryList",
+        "hud.MixinChatScreen",
+        "hud.MixinSubtitleOverlay",
+        "network.MixinClientPacketListener",
+        "network.MixinMultiPlayerGameMode",
+        "render.IMixinLevelExtractor",
+        "render.IMixinLevelRenderer",
+        "render.MixinLevelExtractor",
+        "render.MixinLevelRenderer"
+    ],
+    "server": [],
+    "injectors": {
+        "defaultRequire": 0
+  }
+}

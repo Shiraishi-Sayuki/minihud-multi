@@ -15,16 +15,20 @@ public class NeoForgePayloads {
     // 登録処理 - registrarはRegisterPayloadHandlersEventからもらう、playToClientで受信だけ受ける
     // 受信処理はメインスレッドでやらないとワールドアクセスが危ないのでenqueueWorkで投げる
     public static void register(PayloadRegistrar registrar) {
-        registrar.playToClient(ServuxHudPacket.Payload.ID, ServuxHudPacket.Payload.CODEC, (payload, context) ->
+        // optional() を付けないと NeoForge はこのチャンネルを「必須」とみなし、
+        // Servux の無いサーバーへ接続しただけで mod 不一致で切断される
+        PayloadRegistrar optional = registrar.optional();
+
+        optional.playToClient(ServuxHudPacket.Payload.ID, ServuxHudPacket.Payload.CODEC, (payload, context) ->
                 context.enqueueWork(() -> ServuxHudHandler.getInstance().receivePlayPayload(payload, null)));
 
-        registrar.playToClient(ServuxEntitiesPacket.Payload.ID, ServuxEntitiesPacket.Payload.CODEC, (payload, context) ->
+        optional.playToClient(ServuxEntitiesPacket.Payload.ID, ServuxEntitiesPacket.Payload.CODEC, (payload, context) ->
                 context.enqueueWork(() -> ServuxEntitiesHandler.getInstance().receivePlayPayload(payload, null)));
 
-        registrar.playToClient(ServuxStructuresPacket.Payload.ID, ServuxStructuresPacket.Payload.CODEC, (payload, context) ->
+        optional.playToClient(ServuxStructuresPacket.Payload.ID, ServuxStructuresPacket.Payload.CODEC, (payload, context) ->
                 context.enqueueWork(() -> ServuxStructuresHandler.getInstance().receivePlayPayload(payload, null)));
 
-        registrar.playToClient(ServuxDebugPacket.Payload.ID, ServuxDebugPacket.Payload.CODEC, (payload, context) ->
+        optional.playToClient(ServuxDebugPacket.Payload.ID, ServuxDebugPacket.Payload.CODEC, (payload, context) ->
                 context.enqueueWork(() -> ServuxDebugHandler.getInstance().receivePlayPayload(payload, null)));
     }
 }

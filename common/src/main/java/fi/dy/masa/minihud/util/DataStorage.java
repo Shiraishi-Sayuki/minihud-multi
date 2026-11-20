@@ -37,6 +37,7 @@ import net.minecraft.world.level.levelgen.structure.Structure;
 import net.minecraft.world.level.levelgen.structure.StructureStart;
 import net.minecraft.world.phys.Vec3;
 
+import fi.dy.masa.malilib.MaLiLibReference;
 import fi.dy.masa.malilib.gui.GuiBase;
 import fi.dy.masa.malilib.network.ClientPlayHandler;
 import fi.dy.masa.malilib.network.IPluginClientPlayHandler;
@@ -297,7 +298,7 @@ public class DataStorage
 
     public void onPacketFailure()
     {
-        RendererToggle.OVERLAY_STRUCTURE_MAIN_TOGGLE.setBooleanValue(false);
+//        RendererToggle.OVERLAY_STRUCTURE_MAIN_TOGGLE.setBooleanValue(false);
         this.shouldRegisterStructureChannel = false;
         this.servuxServer = false;
         this.hasInValidServux = true;
@@ -847,7 +848,7 @@ public class DataStorage
             final String servux = data.getStringOrDefault("servux", "?");
             MiniHUD.debugLog("DataStorage#receiveServuxStrucutresMetadata(): received METADATA from Servux");
 
-            if (version != ServuxStructuresPacket.PROTOCOL_VERSION || !servux.startsWith("servux-"+Reference.MOD_TYPE+"-"+Reference.MC_VERSION))
+            if (version != ServuxStructuresPacket.PROTOCOL_VERSION || !servux.startsWith("servux-"+Reference.MOD_TYPE))
             {
                 MiniHUD.LOGGER.warn("structureChannel: Mis-matched protocol version! (Expected: {} but got {} running on: {})", ServuxStructuresPacket.PROTOCOL_VERSION, version, servux);
 
@@ -858,7 +859,8 @@ public class DataStorage
 
                 HANDLER.unregisterPlayReceiver();
                 HANDLER.reset(this.getNetworkChannel());
-                RendererToggle.OVERLAY_STRUCTURE_MAIN_TOGGLE.setBooleanValue(false);
+//                RendererToggle.OVERLAY_STRUCTURE_MAIN_TOGGLE.setBooleanValue(false);
+                this.onPacketFailure();
 
                 return false;
             }
@@ -1037,6 +1039,7 @@ public class DataStorage
                     StructureStart start = entry.getValue();
                     Identifier id = world.registryAccess().lookupOrThrow(Registries.STRUCTURE).getKey(structure);
                     StructureType type = StructureType.fromStructureId(id != null ? id.toString() : "?");
+//                    MiniHUD.LOGGER.error("addStructureDataFromGenerator(): id: [{}]", id.toString());
 
                     if (type.isEnabled() &&
                         start.isValid() &&

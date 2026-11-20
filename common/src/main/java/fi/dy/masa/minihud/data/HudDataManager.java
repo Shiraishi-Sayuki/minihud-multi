@@ -192,7 +192,7 @@ public class HudDataManager
 
     public void onPacketFailure()
     {
-        Configs.Generic.HUD_DATA_SYNC.setBooleanValue(false);
+//        Configs.Generic.HUD_DATA_SYNC.setBooleanValue(false);
         this.shouldRegister = false;
         this.servuxServer = false;
         this.hasInValidServux = true;
@@ -591,7 +591,7 @@ public class HudDataManager
             final String servux = data.getStringOrDefault("servux", "?");
             MiniHUD.debugLog("HudDataStorage#receiveMetadata(): received METADATA from Servux");
 
-            if (version != ServuxHudPacket.PROTOCOL_VERSION || !servux.startsWith("servux-"+Reference.MOD_TYPE+"-"+Reference.MC_VERSION))
+            if (version != ServuxHudPacket.PROTOCOL_VERSION || !servux.startsWith("servux-"+Reference.MOD_TYPE))
             {
                 MiniHUD.LOGGER.warn("hudDataChannel: Mis-matched protocol version! (Expected: {} but got {} running on: {})", ServuxHudPacket.PROTOCOL_VERSION, version, servux);
 
@@ -602,7 +602,8 @@ public class HudDataManager
 
                 HANDLER.unregisterPlayReceiver();
                 HANDLER.reset(this.getNetworkChannel());
-                Configs.Generic.HUD_DATA_SYNC.setBooleanValue(false);
+//                Configs.Generic.HUD_DATA_SYNC.setBooleanValue(false);
+                this.onPacketFailure();
 
                 return false;
             }
